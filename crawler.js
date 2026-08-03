@@ -186,7 +186,18 @@ You must respond in JSON matching the following structure:
         }
 
       } catch (err) {
-        onLog(`[ERROR] Failed to audit page ${currentUrl}: ${err.message}`);
+        let friendlyError = err.message;
+        
+        // Parse Google API JSON errors to provide clean, action-oriented warnings
+        if (err.message.includes('API_KEY_INVALID') || err.message.includes('UNAUTHENTICATED')) {
+          friendlyError = 'Invalid Gemini API Key. Please verify the key in your .env or input field.';
+        } else if (err.message.includes('API_KEY_SERVICE_BLOCKED') || err.message.includes('ACCESS_TOKEN_TYPE_UNSUPPORTED')) {
+          friendlyError = 'Gemini API Key blocked or Generative Language API is disabled for this project in Google Cloud Console.';
+        } else if (err.message.includes('RESOURCE_EXHAUSTED')) {
+          friendlyError = 'Gemini API quota exceeded. Please wait a minute or upgrade your plan.';
+        }
+        
+        onLog(`[ERROR] Failed to audit page ${currentUrl}: ${friendlyError}`);
       } finally {
         await page.close();
       }
