@@ -43,6 +43,29 @@ export async function runQAEngine({
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 B2B-QA-Agent/1.0'
     });
 
+    // Optimize page speeds in low-bandwidth environments (abort video, fonts, and trackers)
+    await context.route('**/*', (route) => {
+      const request = route.request();
+      const type = request.resourceType();
+      const url = request.url().toLowerCase();
+      if (
+        type === 'media' || // Abort video/audio
+        type === 'font' ||  // Abort web fonts (use native fallback)
+        url.includes('analytics') ||
+        url.includes('google-analytics') ||
+        url.includes('googletagmanager') ||
+        url.includes('facebook') ||
+        url.includes('pixel') ||
+        url.includes('hotjar') ||
+        url.includes('mixpanel') ||
+        url.includes('doubleclick')
+      ) {
+        route.abort().catch(() => {});
+      } else {
+        route.continue().catch(() => {});
+      }
+    });
+
     // Authenticate context if credentials are provided
     if (loginUrl && loginUser) {
       const loginPage = await context.newPage();
@@ -123,9 +146,9 @@ export async function runQAEngine({
       });
 
       try {
-        // Load the page
-        await page.goto(currentUrl, { waitUntil: 'load', timeout: 25000 });
-        onLog(`[CRAWL] Page load completed. Injecting user activity interactions...`);
+        // Load page, waiting for DOM content (ignoring slow CDNs/fonts/scripts)
+        await page.goto(currentUrl, { waitUntil: 'domcontentloaded', timeout: 35000 });
+        onLog(`[CRAWL] Page DOM content loaded. Injecting user activity interactions...`);
 
         // Wait a small amount for dynamic JS rendering
         await page.waitForTimeout(3000);
@@ -195,6 +218,8 @@ export async function runQAEngine({
                 }
               });
           }, targetHost);
+
+          onLog(`[SYS] Discovered ${pageLinks.length} internal link(s) on page.`);
 
           for (const link of pageLinks) {
             let normLink = link.split('#')[0];
@@ -367,7 +392,7 @@ You must respond in JSON matching the following structure (ensure it is valid JS
 async function performLogin(page, loginUrl, username, password, onLog) {
   onLog(`[SYS] Starting automated login at: ${loginUrl}`);
   try {
-    await page.goto(loginUrl, { waitUntil: 'load', timeout: 20000 });
+    await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 35000 });
     await page.waitForTimeout(2000);
 
     // Try to find email/username input
@@ -529,7 +554,7 @@ async function executeCustomScenario(page, script, onLog, onBugFound) {
       if (line.startsWith('navigate ')) {
         const url = line.replace('navigate ', '').trim();
         onLog(`[SCENARIO] Navigating to: ${url}`);
-        await page.goto(url, { waitUntil: 'load', timeout: 20000 });
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 35000 });
         await page.waitForTimeout(2000);
       } 
       else if (line.startsWith('fill ') && line.includes(' with ')) {

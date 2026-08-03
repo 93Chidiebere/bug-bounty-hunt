@@ -38,8 +38,14 @@ app.post('/api/start-scan', (req, res) => {
     return res.status(400).json({ error: 'Target URL is required.' });
   }
 
-  // Resolve API Key: check payload first, fallback to .env
-  const geminiApiKey = apiKey || process.env.GEMINI_API_KEY;
+  // Resolve API Key: check payload first, fallback to .env, and trim CRLF/carriage returns
+  let geminiApiKey = (apiKey || process.env.GEMINI_API_KEY || '').trim();
+  if (geminiApiKey.startsWith('"') && geminiApiKey.endsWith('"')) {
+    geminiApiKey = geminiApiKey.slice(1, -1);
+  }
+  if (geminiApiKey.startsWith("'") && geminiApiKey.endsWith("'")) {
+    geminiApiKey = geminiApiKey.slice(1, -1);
+  }
 
   if (provider === 'gemini' && !geminiApiKey) {
     return res.status(400).json({ 
