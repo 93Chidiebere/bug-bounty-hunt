@@ -1,9 +1,15 @@
 // DOM Elements
 const auditForm = document.getElementById('audit-form');
 const targetUrlInput = document.getElementById('target-url');
+const aiProviderInput = document.getElementById('ai-provider');
 const apiKeyInput = document.getElementById('api-key');
+const geminiKeyGroup = document.getElementById('gemini-key-group');
+const modelNameInput = document.getElementById('model-name');
 const maxPagesInput = document.getElementById('max-pages');
 const maxPagesVal = document.getElementById('max-pages-val');
+const loginUrlInput = document.getElementById('login-url');
+const loginUserInput = document.getElementById('login-user');
+const loginPassInput = document.getElementById('login-pass');
 const submitBtn = document.getElementById('submit-btn');
 const submitSpinner = submitBtn.querySelector('.spinner');
 const submitText = submitBtn.querySelector('span:first-child');
@@ -17,13 +23,53 @@ const modalBodyContent = document.getElementById('modal-body-content');
 const printBugsList = document.getElementById('print-bugs-list');
 const printMetaText = document.getElementById('print-meta-text');
 
+// Tab & observations elements
+const tabBugsBtn = document.getElementById('tab-bugs-btn');
+const tabPagesBtn = document.getElementById('tab-pages-btn');
+const tabContentBugs = document.getElementById('tab-content-bugs');
+const tabContentPages = document.getElementById('tab-content-pages');
+const pagesContainer = document.getElementById('pages-container');
+const pagesEmptyState = document.getElementById('pages-empty-state');
+const bugsCount = document.getElementById('bugs-count');
+const pagesCount = document.getElementById('pages-count');
+const testScenarioInput = document.getElementById('test-scenario');
+
 let activeEventSource = null;
 let foundBugs = [];
+let auditedPages = [];
 let targetUrl = '';
 
 // Update page slider indicator
 maxPagesInput.addEventListener('input', (e) => {
   maxPagesVal.textContent = `${e.target.value} page${e.target.value > 1 ? 's' : ''}`;
+});
+
+// Tab navigation listeners
+tabBugsBtn.addEventListener('click', () => {
+  tabBugsBtn.classList.add('active');
+  tabPagesBtn.classList.remove('active');
+  tabContentBugs.classList.remove('hidden');
+  tabContentPages.classList.add('hidden');
+});
+
+tabPagesBtn.addEventListener('click', () => {
+  tabPagesBtn.classList.add('active');
+  tabBugsBtn.classList.remove('active');
+  tabContentPages.classList.remove('hidden');
+  tabContentBugs.classList.add('hidden');
+});
+
+// AI Provider changes visibility of API Key & resets default model
+aiProviderInput.addEventListener('change', (e) => {
+  if (e.target.value === 'ollama') {
+    geminiKeyGroup.style.display = 'none';
+    modelNameInput.value = 'llama3.2-vision';
+    modelNameInput.placeholder = 'llama3.2-vision';
+  } else {
+    geminiKeyGroup.style.display = 'flex';
+    modelNameInput.value = 'gemini-1.5-flash';
+    modelNameInput.placeholder = 'gemini-1.5-flash';
+  }
 });
 
 // Start Audit submit handler
@@ -36,16 +82,31 @@ auditForm.addEventListener('submit', async (e) => {
   }
   
   foundBugs = [];
+  auditedPages = [];
   targetUrl = targetUrlInput.value.trim();
   const apiKey = apiKeyInput.value.trim();
+  const provider = aiProviderInput.value;
+  const model = modelNameInput.value.trim();
   const maxPages = maxPagesInput.value;
+  const loginUrl = loginUrlInput.value.trim();
+  const loginUser = loginUserInput.value.trim();
+  const loginPass = loginPassInput.value.trim();
+  const testScenario = testScenarioInput.value.trim();
   
   // UI resets
   consoleLogs.innerHTML = '';
-  // Remove existing bug cards, leave empty state hidden
-  const bugCards = bugsContainer.querySelectorAll('.bug-card');
-  bugCards.forEach(card => card.remove());
-  emptyState.classList.add('hidden');
+  bugsCount.textContent = '0';
+  pagesCount.textContent = '0';
+  
+  // Remove dynamic elements
+  bugsContainer.querySelectorAll('.bug-card').forEach(card => card.remove());
+  pagesContainer.querySelectorAll('.page-card').forEach(card => card.remove());
+  
+  emptyState.classList.remove('hidden');
+  pagesEmptyState.classList.remove('hidden');
+  
+  // Switch to Bugs tab by default at start
+  tabBugsBtn.click();
   
   // Set console status to active
   statusDot.className = 'console-status-dot active';
@@ -61,7 +122,17 @@ auditForm.addEventListener('submit', async (e) => {
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ url: targetUrl, apiKey, maxPages })
+      body: JSON.stringify({ 
+        url: targetUrl, 
+        apiKey, 
+        provider, 
+        model, 
+        maxPages,
+        loginUrl,
+        loginUser,
+        loginPass,
+        testScenario
+      })
     });
     
     const result = await response.json();
@@ -101,17 +172,26 @@ function setupSSE(scanId) {
     addLogMessage(data.message, category);
   });
   
+  activeEventSource.addEventListener('page', (e) => {
+    const pageObs = JSON.parse(e.data);
+    auditedPages.push(pageObs);
+    
+    pagesCount.textContent = auditedPages.length;
+    pagesEmptyState.classList.add('hidden');
+    
+    renderPageCard(pageObs);
+    
+    // Enable PDF report as long as pages are audited (observations exist)
+    exportPdfBtn.removeAttribute('disabled');
+  });
+  
   activeEventSource.addEventListener('bug', (e) => {
     const bug = JSON.parse(e.data);
     foundBugs.push(bug);
     
-    // Hide empty state
     emptyState.classList.add('hidden');
-    
-    // Render the bug card
+    bugsCount.textContent = foundBugs.length;
     renderBugCard(bug);
-    
-    // Enable PDF button
     exportPdfBtn.removeAttribute('disabled');
   });
   
@@ -129,7 +209,6 @@ function setupSSE(scanId) {
   });
   
   activeEventSource.onerror = (err) => {
-    // SSE will automatically try to reconnect or close when server terminates session
     activeEventSource.close();
   };
 }
@@ -151,7 +230,6 @@ function addLogMessage(message, category) {
   logRow.appendChild(msgSpan);
   consoleLogs.appendChild(logRow);
   
-  // Auto-scroll to bottom of logs
   consoleLogs.scrollTop = consoleLogs.scrollHeight;
 }
 
@@ -165,6 +243,9 @@ function finalizeScan() {
   
   if (foundBugs.length === 0) {
     emptyState.classList.remove('hidden');
+  }
+  if (auditedPages.length === 0) {
+    pagesEmptyState.classList.remove('hidden');
     exportPdfBtn.setAttribute('disabled', 'true');
   }
 }
@@ -172,8 +253,14 @@ function finalizeScan() {
 // Helper to disable form elements
 function setFormDisabled(disabled) {
   targetUrlInput.disabled = disabled;
+  aiProviderInput.disabled = disabled;
   apiKeyInput.disabled = disabled;
+  modelNameInput.disabled = disabled;
   maxPagesInput.disabled = disabled;
+  loginUrlInput.disabled = disabled;
+  loginUserInput.disabled = disabled;
+  loginPassInput.disabled = disabled;
+  testScenarioInput.disabled = disabled;
   
   if (disabled) {
     submitSpinner.classList.remove('hidden');
@@ -245,43 +332,100 @@ function renderBugCard(bug) {
   bugsContainer.appendChild(card);
 }
 
-// Open modal for a specific bug
-function openBugModal(bug) {
-  // Format reproduction steps
-  const stepsHtml = bug.reproductionSteps
-    .split('\n')
-    .map(step => `<li>${escapeHtml(step.replace(/^\d+\.\s*/, ''))}</li>`)
-    .join('');
-    
+// Render audited page observation card
+function renderPageCard(pageObs) {
+  const card = document.createElement('div');
+  card.className = 'page-card';
+  
+  const imgWrapper = document.createElement('div');
+  imgWrapper.className = 'page-card-img-wrapper';
+  
+  const img = document.createElement('img');
+  img.className = 'page-card-img';
+  img.src = pageObs.screenshot;
+  img.alt = pageObs.title;
+  imgWrapper.appendChild(img);
+  
+  const body = document.createElement('div');
+  body.className = 'page-card-body';
+  
+  const title = document.createElement('div');
+  title.className = 'page-card-title';
+  title.textContent = pageObs.title || 'Untitled Page';
+  
+  const url = document.createElement('div');
+  url.className = 'page-card-url';
+  url.textContent = pageObs.url;
+  
+  const meta = document.createElement('div');
+  meta.className = 'page-card-meta';
+  
+  // Calculate status indicator
+  const errorsCount = pageObs.pageErrors.length + pageObs.networkErrors.length;
+  const indicator = document.createElement('div');
+  indicator.className = 'page-logs-indicator';
+  
+  if (errorsCount > 0) {
+    indicator.innerHTML = `
+      <span class="logs-indicator-error">●</span>
+      <span>${errorsCount} Technical Error${errorsCount > 1 ? 's' : ''}</span>
+    `;
+  } else if (pageObs.consoleLogs.length > 0) {
+    indicator.innerHTML = `
+      <span class="logs-indicator-warning">●</span>
+      <span>Warnings Only</span>
+    `;
+  } else {
+    indicator.innerHTML = `
+      <span class="logs-indicator-success">●</span>
+      <span>Clean Session</span>
+    `;
+  }
+  
+  const viewLogsBtn = document.createElement('button');
+  viewLogsBtn.className = 'btn-view-logs';
+  viewLogsBtn.textContent = 'View Technical Logs';
+  viewLogsBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openPageLogsModal(pageObs);
+  });
+  
+  meta.appendChild(indicator);
+  meta.appendChild(viewLogsBtn);
+  
+  body.appendChild(title);
+  body.appendChild(url);
+  body.appendChild(meta);
+  
+  card.appendChild(imgWrapper);
+  card.appendChild(body);
+  
+  pagesContainer.appendChild(card);
+}
+
+// Open modal showing audited page logs
+function openPageLogsModal(pageObs) {
+  const allLogs = [
+    ...pageObs.pageErrors.map(e => `[EXCEPTION] ${e}`),
+    ...pageObs.networkErrors.map(n => `[NETWORK FAILURE] ${n}`),
+    ...pageObs.consoleLogs
+  ];
+
   modalBodyContent.innerHTML = `
     <div class="detail-grid">
       <div class="detail-visual">
-        <label>Visual Catch Screen Capture</label>
-        <img class="detail-full-img" src="${bug.screenshot}" alt="${escapeHtml(bug.title)}">
+        <label>Page Audit Screen Capture</label>
+        <img class="detail-full-img" src="${pageObs.screenshot}" alt="${escapeHtml(pageObs.title)}">
       </div>
       <div class="detail-info">
         <div class="detail-header-info">
-          <div class="bug-meta">
-            <span class="badge badge-type">${escapeHtml(bug.type)}</span>
-            <span class="badge severity-${bug.severity}">${escapeHtml(bug.severity)}</span>
-          </div>
-          <h3 class="detail-title">${escapeHtml(bug.title)}</h3>
-          <div class="bug-url">${escapeHtml(bug.url)}</div>
+          <h3 class="detail-title">${escapeHtml(pageObs.title || 'Untitled Page')}</h3>
+          <div class="bug-url">${escapeHtml(pageObs.url)}</div>
         </div>
         
         <div class="detail-block">
-          <h4>Description & Impact</h4>
-          <p>${escapeHtml(bug.description)}</p>
-        </div>
-        
-        <div class="detail-block">
-          <h4>Steps to Reproduce</h4>
-          <ol>${stepsHtml}</ol>
-        </div>
-        
-        <div class="detail-block">
-          <h4>Suggested Code Correction</h4>
-          <pre class="code-block"><code>${escapeHtml(bug.suggestedFix)}</code></pre>
+          <h4>Console & Network Log Stream</h4>
+          <pre class="code-block" style="max-height: 400px; overflow-y: auto;"><code>${allLogs.length > 0 ? escapeHtml(allLogs.join('\n')) : 'No console errors or network warnings recorded during this session.'}</code></pre>
         </div>
       </div>
     </div>
@@ -290,11 +434,108 @@ function openBugModal(bug) {
   bugModal.classList.add('open');
 }
 
+// PDF Print Export (Compiles bugs in paper-friendly formatting)
+exportPdfBtn.addEventListener('click', () => {
+  if (auditedPages.length === 0) return;
+  
+  // Set metadata
+  printMetaText.textContent = `Target Domain: ${targetUrl} | Audit Date: ${new Date().toLocaleDateString()}`;
+  
+  printBugsList.innerHTML = '';
+
+  // 1. Compile Vulnerabilities
+  const sectionBugs = document.createElement('h2');
+  sectionBugs.style.borderBottom = '2px solid #18181b';
+  sectionBugs.style.paddingBottom = '6px';
+  sectionBugs.style.marginBottom = '20px';
+  sectionBugs.textContent = '1. Vulnerabilities & Defect Findings';
+  printBugsList.appendChild(sectionBugs);
+  
+  if (foundBugs.length === 0) {
+    const noBugsMsg = document.createElement('p');
+    noBugsMsg.style.fontStyle = 'italic';
+    noBugsMsg.style.color = '#52525b';
+    noBugsMsg.textContent = 'No critical layout defects or runtime vulnerabilities were isolated by the AI visual auditor.';
+    printBugsList.appendChild(noBugsMsg);
+  } else {
+    foundBugs.forEach((bug, index) => {
+      const bugItem = document.createElement('div');
+      bugItem.className = 'print-bug-item';
+      
+      const steps = bug.reproductionSteps
+        .split('\n')
+        .map(step => `<li>${escapeHtml(step.replace(/^\d+\.\s*/, ''))}</li>`)
+        .join('');
+        
+      bugItem.innerHTML = `
+        <h3 class="print-bug-title">${index + 1}. ${escapeHtml(bug.title)}</h3>
+        <div class="print-bug-meta">
+          <strong>URL:</strong> ${escapeHtml(bug.url)} | 
+          <strong>Type:</strong> ${escapeHtml(bug.type)} | 
+          <strong>Severity:</strong> ${escapeHtml(bug.severity)}
+        </div>
+        <div class="print-bug-desc">
+          <strong>Description:</strong> ${escapeHtml(bug.description)}
+        </div>
+        <div class="print-bug-desc">
+          <strong>Reproduction Steps:</strong>
+          <ol class="print-bug-steps">${steps}</ol>
+        </div>
+        <div>
+          <strong>Suggested Remediation:</strong>
+          <pre class="print-bug-fix"><code>${escapeHtml(bug.suggestedFix)}</code></pre>
+        </div>
+      `;
+      printBugsList.appendChild(bugItem);
+    });
+  }
+
+  // 2. Compile Page Observations
+  const sectionPages = document.createElement('h2');
+  sectionPages.style.borderBottom = '2px solid #18181b';
+  sectionPages.style.paddingBottom = '6px';
+  sectionPages.style.marginTop = '40px';
+  sectionPages.style.marginBottom = '20px';
+  sectionPages.textContent = '2. Page Observations & Technical Snapshots';
+  printBugsList.appendChild(sectionPages);
+
+  auditedPages.forEach((p, index) => {
+    const pageItem = document.createElement('div');
+    pageItem.className = 'print-bug-item';
+    pageItem.style.display = 'grid';
+    pageItem.style.gridTemplateColumns = '240px 1fr';
+    pageItem.style.gap = '20px';
+    pageItem.style.pageBreakInside = 'avoid';
+
+    const allLogs = [
+      ...p.pageErrors.map(e => `[EXCEPTION] ${e}`),
+      ...p.networkErrors.map(n => `[NETWORK FAILURE] ${n}`),
+      ...p.consoleLogs
+    ];
+
+    pageItem.innerHTML = `
+      <div>
+        <img src="${p.screenshot}" style="width:100%; border:1px solid #e4e4e7; border-radius:4px;">
+      </div>
+      <div>
+        <h3 style="font-size:12pt; font-weight:bold; margin:0 0 5px 0;">Observation #${index + 1}: ${escapeHtml(p.title || 'Untitled Page')}</h3>
+        <div style="font-family:monospace; font-size:8pt; color:#71717a; margin-bottom:10px; word-break:break-all;">URL: ${escapeHtml(p.url)}</div>
+        <div style="font-size:9pt; margin-top:5px;">
+          <strong>Console logs:</strong>
+          <pre class="print-bug-fix" style="max-height:180px; overflow-y:auto; font-size:7.5pt; margin-top:5px;"><code>${allLogs.length > 0 ? escapeHtml(allLogs.join('\n')) : 'No console errors or exceptions recorded.'}</code></pre>
+        </div>
+      </div>
+    `;
+    printBugsList.appendChild(pageItem);
+  });
+  
+  window.print();
+});
+
 function closeModal() {
   bugModal.classList.remove('open');
 }
 
-// Helper to escape HTML characters
 function escapeHtml(str) {
   if (!str) return '';
   return str
@@ -304,48 +545,3 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 }
-
-// PDF Print Export (Compiles bugs in paper-friendly formatting)
-exportPdfBtn.addEventListener('click', () => {
-  if (foundBugs.length === 0) return;
-  
-  // Set metadata
-  printMetaText.textContent = `Target Domain: ${targetUrl} | Audit Date: ${new Date().toLocaleDateString()}`;
-  
-  printBugsList.innerHTML = '';
-  
-  foundBugs.forEach((bug, index) => {
-    const bugItem = document.createElement('div');
-    bugItem.className = 'print-bug-item';
-    
-    // Compile steps
-    const steps = bug.reproductionSteps
-      .split('\n')
-      .map(step => `<li>${escapeHtml(step.replace(/^\d+\.\s*/, ''))}</li>`)
-      .join('');
-      
-    bugItem.innerHTML = `
-      <h3 class="print-bug-title">${index + 1}. ${escapeHtml(bug.title)}</h3>
-      <div class="print-bug-meta">
-        <strong>URL:</strong> ${escapeHtml(bug.url)} | 
-        <strong>Type:</strong> ${escapeHtml(bug.type)} | 
-        <strong>Severity:</strong> ${escapeHtml(bug.severity)}
-      </div>
-      <div class="print-bug-desc">
-        <strong>Description:</strong> ${escapeHtml(bug.description)}
-      </div>
-      <div class="print-bug-desc">
-        <strong>Reproduction Steps:</strong>
-        <ol class="print-bug-steps">${steps}</ol>
-      </div>
-      <div>
-        <strong>Suggested Remediation:</strong>
-        <pre class="print-bug-fix"><code>${escapeHtml(bug.suggestedFix)}</code></pre>
-      </div>
-    `;
-    
-    printBugsList.appendChild(bugItem);
-  });
-  
-  window.print();
-});

@@ -22,7 +22,17 @@ function generateId() {
 
 // POST endpoint to initiate scanning
 app.post('/api/start-scan', (req, res) => {
-  const { url, apiKey, maxPages = 5 } = req.body;
+  const { 
+    url, 
+    apiKey, 
+    provider = 'gemini', 
+    model = 'gemini-1.5-flash', 
+    maxPages = 5,
+    loginUrl = '',
+    loginUser = '',
+    loginPass = '',
+    testScenario = ''
+  } = req.body;
 
   if (!url) {
     return res.status(400).json({ error: 'Target URL is required.' });
@@ -31,7 +41,7 @@ app.post('/api/start-scan', (req, res) => {
   // Resolve API Key: check payload first, fallback to .env
   const geminiApiKey = apiKey || process.env.GEMINI_API_KEY;
 
-  if (!geminiApiKey) {
+  if (provider === 'gemini' && !geminiApiKey) {
     return res.status(400).json({ 
       error: 'Gemini API Key is missing. Provide it in the UI or set it in the backend environment.' 
     });
@@ -45,6 +55,7 @@ app.post('/api/start-scan', (req, res) => {
     status: 'running',
     logs: [],
     bugs: [],
+    pages: [],
     clients: []
   });
 
@@ -70,12 +81,24 @@ app.post('/api/start-scan', (req, res) => {
     broadcast('bug', bug);
   };
 
+  const addPage = (pageObs) => {
+    scanSession.pages.push(pageObs);
+    broadcast('page', pageObs);
+  };
+
   runQAEngine({
     startUrl: url,
     geminiApiKey,
+    provider,
+    model,
     maxPages: parseInt(maxPages) || 5,
+    loginUrl,
+    loginUser,
+    loginPass,
+    testScenario,
     onLog: addLog,
-    onBugFound: addBug
+    onBugFound: addBug,
+    onPageAudited: addPage
   }).then(() => {
     scanSession.status = 'completed';
     broadcast('status', { status: 'completed' });
@@ -121,6 +144,10 @@ app.get('/api/scan-status', (req, res) => {
 
   scanSession.bugs.forEach(bug => {
     res.write(`event: bug\ndata: ${JSON.stringify(bug)}\n\n`);
+  });
+
+  scanSession.pages.forEach(page => {
+    res.write(`event: page\ndata: ${JSON.stringify(page)}\n\n`);
   });
 
   // If scan is already done, end connection
