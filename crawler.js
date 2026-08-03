@@ -393,7 +393,10 @@ async function performLogin(page, loginUrl, username, password, onLog) {
   onLog(`[SYS] Starting automated login at: ${loginUrl}`);
   try {
     await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 35000 });
-    await page.waitForTimeout(2000);
+    
+    // Wait for the password field to render, indicating the form is loaded
+    onLog(`[SYS] Waiting for login form elements to render...`);
+    const passField = await page.waitForSelector('input[type="password"]', { state: 'visible', timeout: 12000 });
 
     // Try to find email/username input
     const userSelectors = [
@@ -415,9 +418,6 @@ async function performLogin(page, loginUrl, username, password, onLog) {
         }
       } catch (e) {}
     }
-
-    // Try to find password input
-    const passField = await page.$('input[type="password"]');
 
     if (!userField || !passField) {
       throw new Error('Could not identify login inputs. Ensure the page has standard username and password fields.');
