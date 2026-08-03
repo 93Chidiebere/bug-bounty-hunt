@@ -1,0 +1,17 @@
+{
+  "name": "bug-hunting-agent",
+  "version": "1.0.0",
+  "description": "B2B Autonomous QA Engineer Agent MVP",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@google/genai": "latest",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "playwright": "^1.45.0"
+  }
+}

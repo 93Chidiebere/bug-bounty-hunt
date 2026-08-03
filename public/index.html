@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VerifyQA | Enterprise Autonomous QA Audit Agent</title>
+  <!-- Clean typography from Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Geist:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+  <!-- Top Navigation Header -->
+  <header class="main-header">
+    <div class="header-container">
+      <div class="logo">
+        <span class="logo-bold">Verify</span><span class="logo-light">QA</span>
+        <span class="badge-beta">Enterprise MVP</span>
+      </div>
+      <div class="header-tagline">Autonomous QA Auditor for African Tech</div>
+    </div>
+  </header>
+
+  <!-- Main Content Layout -->
+  <main class="dashboard-container">
+    
+    <!-- Left Configuration Panel -->
+    <section class="config-panel">
+      <div class="panel-header">
+        <h1>Start Automated Site Audit</h1>
+        <p class="panel-subtitle">
+          The autonomous agent will crawl subpages, test user paths, capture screen layouts, and inspect network or console payloads to generate an institutional-grade bug report.
+        </p>
+      </div>
+
+      <form id="audit-form" class="audit-form">
+        <div class="form-group">
+          <label for="target-url">Target Website URL</label>
+          <input 
+            type="url" 
+            id="target-url" 
+            placeholder="https://example.com" 
+            required
+            autocomplete="off"
+          >
+        </div>
+
+        <!-- Collapsible Settings -->
+        <details class="settings-details">
+          <summary>Advanced Audit Configurations</summary>
+          <div class="details-content">
+            <div class="form-group">
+              <label for="api-key">Gemini API Key (Optional)</label>
+              <input 
+                type="password" 
+                id="api-key" 
+                placeholder="Defaults to server-side key if empty"
+                autocomplete="off"
+              >
+            </div>
+            <div class="form-group">
+              <label for="max-pages">Crawl Page Limit (Max: 10)</label>
+              <div class="range-container">
+                <input 
+                  type="range" 
+                  id="max-pages" 
+                  min="1" 
+                  max="10" 
+                  value="5"
+                >
+                <span id="max-pages-val">5 pages</span>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <button type="submit" id="submit-btn" class="btn-primary">
+          <span>Run Security & Functional Audit</span>
+          <span class="spinner hidden"></span>
+        </button>
+      </form>
+      
+      <!-- Live Terminal Console -->
+      <div class="console-section">
+        <div class="console-header">
+          <span class="console-title">Live Activity Log</span>
+          <span class="console-status-dot idle" id="status-dot"></span>
+        </div>
+        <div class="console-log-wrapper" id="console-logs">
+          <div class="log-placeholder">Initialize scan to observe agent navigation logs...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Results Panel -->
+    <section class="results-panel">
+      <div class="results-header">
+        <h2>Audit Findings</h2>
+        <div class="results-actions">
+          <button id="export-pdf-btn" class="btn-secondary" disabled>
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+            </svg>
+            Export PDF Report
+          </button>
+        </div>
+      </div>
+
+      <div class="bugs-grid" id="bugs-container">
+        <!-- Bug cards injected here -->
+        <div class="empty-state" id="empty-state">
+          <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="m9 12 2 2 4-4"/>
+          </svg>
+          <h3>No Active Audit Findings</h3>
+          <p>Provide a target URL on the left configuration pane to begin scan.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Detailed Bug Modal -->
+  <div class="modal" id="bug-modal">
+    <div class="modal-overlay" onclick="closeModal()"></div>
+    <div class="modal-content">
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+      <div class="modal-body" id="modal-body-content">
+        <!-- Modal details injected here -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Print Report Template (Hidden by default, used for clean PDF print output) -->
+  <div id="print-template" class="print-only">
+    <div class="print-header">
+      <div class="print-logo">VerifyQA</div>
+      <div class="print-title">System QA & Technical Audit Report</div>
+      <div class="print-meta" id="print-meta-text">Target Domain: - | Audited Date: -</div>
+    </div>
+    <div class="print-body" id="print-bugs-list">
+      <!-- Printable bug details compiled here -->
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
