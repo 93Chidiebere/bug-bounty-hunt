@@ -181,7 +181,7 @@ export async function runQAEngine({
 
       try {
         // Load page, waiting for DOM content (ignoring slow CDNs/fonts/scripts)
-        await page.goto(currentUrl, { waitUntil: 'domcontentloaded', timeout: 35000 });
+        await page.goto(currentUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
         onLog(`[CRAWL] Page DOM content loaded. Injecting user activity interactions...`);
 
         // Wait a small amount for dynamic JS rendering
@@ -488,11 +488,11 @@ You must respond in JSON matching the following structure (ensure it is valid JS
 async function performLogin(page, loginUrl, username, password, onLog) {
   onLog(`[SYS] Starting automated login at: ${loginUrl}`);
   try {
-    await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 35000 });
+    await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
     
     // Wait for the password field to render, indicating the form is loaded
     onLog(`[SYS] Waiting for login form elements to render...`);
-    const passField = await page.waitForSelector('input[type="password"]', { state: 'visible', timeout: 12000 });
+    const passField = await page.waitForSelector('input[type="password"]', { state: 'visible', timeout: 35000 });
 
     // Identify user/email field using robust user-visible labels, placeholders, or attributes (Playwright Locators)
     let userField;
@@ -669,7 +669,7 @@ async function executeCustomScenario(page, script, onLog, onBugFound) {
           el = page.locator(selector).first();
         }
         
-        await el.waitFor({ state: 'visible', timeout: 8000 });
+        await el.waitFor({ state: 'visible', timeout: 20000 });
         await el.fill(value);
       } 
       else if (line.startsWith('click ')) {
@@ -690,7 +690,7 @@ async function executeCustomScenario(page, script, onLog, onBugFound) {
           el = page.locator(selector).first();
         }
         
-        await el.waitFor({ state: 'visible', timeout: 8000 });
+        await el.waitFor({ state: 'visible', timeout: 20000 });
         await el.click();
         await page.waitForTimeout(1500);
       } 
@@ -962,12 +962,12 @@ Notes:
       if (actionJson.action === 'click') {
         onLog(`[AGENT] Action: Clicking element: ${actionJson.selector}`);
         try {
-          await page.click(actionJson.selector, { timeout: 8000 });
+          await page.click(actionJson.selector, { timeout: 15000 });
           await page.waitForTimeout(2000);
         } catch (clickErr) {
           onLog(`[AGENT] Click failed. Running recovery: Pausing 3s for animations and retrying...`);
           await page.waitForTimeout(3000);
-          await page.click(actionJson.selector, { timeout: 8000 });
+          await page.click(actionJson.selector, { timeout: 15000 });
           await page.waitForTimeout(2000);
         }
       } 
@@ -978,7 +978,7 @@ Notes:
           await field.focus();
           await page.keyboard.press('Control+A');
           await page.keyboard.press('Backspace');
-          await field.fill(actionJson.value, { timeout: 8000 });
+          await field.fill(actionJson.value, { timeout: 15000 });
         } catch (fillErr) {
           onLog(`[AGENT] Fill failed. Running recovery: Re-focusing and typing slowly...`);
           const field = page.locator(actionJson.selector).first();
