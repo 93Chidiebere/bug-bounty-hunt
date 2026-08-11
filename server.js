@@ -31,7 +31,8 @@ app.post('/api/start-scan', (req, res) => {
     loginUrl = '',
     loginUser = '',
     loginPass = '',
-    testScenario = ''
+    testScenario = '',
+    fuzzInputs = false
   } = req.body;
 
   if (!url) {
@@ -102,6 +103,7 @@ app.post('/api/start-scan', (req, res) => {
     loginUser,
     loginPass,
     testScenario,
+    fuzzInputs: fuzzInputs === true || fuzzInputs === 'true',
     onLog: addLog,
     onBugFound: addBug,
     onPageAudited: addPage

@@ -33,6 +33,7 @@ const pagesEmptyState = document.getElementById('pages-empty-state');
 const bugsCount = document.getElementById('bugs-count');
 const pagesCount = document.getElementById('pages-count');
 const testScenarioInput = document.getElementById('test-scenario');
+const fuzzInputsInput = document.getElementById('fuzz-inputs');
 
 let activeEventSource = null;
 let foundBugs = [];
@@ -92,6 +93,7 @@ auditForm.addEventListener('submit', async (e) => {
   const loginUser = loginUserInput.value.trim();
   const loginPass = loginPassInput.value.trim();
   const testScenario = testScenarioInput.value.trim();
+  const fuzzInputs = fuzzInputsInput.checked;
   
   // UI resets
   consoleLogs.innerHTML = '';
@@ -131,7 +133,8 @@ auditForm.addEventListener('submit', async (e) => {
         loginUrl,
         loginUser,
         loginPass,
-        testScenario
+        testScenario,
+        fuzzInputs
       })
     });
     
@@ -261,6 +264,7 @@ function setFormDisabled(disabled) {
   loginUserInput.disabled = disabled;
   loginPassInput.disabled = disabled;
   testScenarioInput.disabled = disabled;
+  fuzzInputsInput.disabled = disabled;
   
   if (disabled) {
     submitSpinner.classList.remove('hidden');

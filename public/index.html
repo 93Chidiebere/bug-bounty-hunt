@@ -91,6 +91,15 @@
                 <span id="max-pages-val">5 pages</span>
               </div>
             </div>
+            <div class="form-group checkbox-group" style="margin-top: 1rem; border-top: 1px dashed var(--border-color); padding-top: 1rem;">
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.85rem; font-weight: 500;">
+                <input type="checkbox" id="fuzz-inputs" style="width: 15px; height: 15px; cursor: pointer;">
+                Enable Input Boundary Fuzzing (Test Form Limits)
+              </label>
+              <small style="color: var(--text-secondary); font-size: 0.72rem; display: block; margin-top: 0.25rem; line-height: 1.3;">
+                Automatically fills forms with boundary edge-cases (e.g. letters in numeric fields, long strings) and submits them to check for validation crashes.
+              </small>
+            </div>
           </div>
         </details>
 

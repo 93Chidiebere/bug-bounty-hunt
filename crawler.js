@@ -19,6 +19,7 @@ export async function runQAEngine({
   loginUser = '',
   loginPass = '',
   testScenario = '',
+  fuzzInputs = false,
   onLog, 
   onBugFound, 
   onPageAudited,
@@ -71,6 +72,11 @@ export async function runQAEngine({
       const loginPage = await context.newPage();
       try {
         await performLogin(loginPage, loginUrl, loginUser, loginPass, onLog);
+        
+        // Capture authenticated session storage state (cookies + local storage)
+        const statePath = 'auth_state.json';
+        await context.storageState({ path: statePath });
+        onLog(`[SYS] Authenticated storage state successfully serialized to ${statePath}`);
       } catch (err) {
         onLog(`[WARNING] Login failed: ${err.message}. Auditing site without session auth.`);
       } finally {
@@ -124,6 +130,16 @@ export async function runQAEngine({
       const consoleLogs = [];
       const pageErrors = [];
       const networkErrors = [];
+      const scriptUrls = [];
+
+      // Intercept and record loaded scripts (Static Secret Scanner)
+      page.on('response', response => {
+        const url = response.url();
+        const request = response.request();
+        if (request.resourceType() === 'script' && url.startsWith(origin)) {
+          scriptUrls.push(url);
+        }
+      });
 
       // Attach browser event listeners
       page.on('console', msg => {
@@ -156,6 +172,11 @@ export async function runQAEngine({
         // Actively interact with buttons, likes, comments to check runtime stability
         await interactWithPageElements(page, onLog);
         
+        // Perform boundary fuzzing on discovered input forms if enabled (Phase 2)
+        if (fuzzInputs) {
+          await executeFunctionalInputFuzzer(page, onLog);
+        }
+        
         const pageTitle = await page.title().catch(() => 'Untitled Page');
 
         // Take highly compressed JPEG screen capture to prevent Ollama timeouts/OOMs
@@ -163,6 +184,63 @@ export async function runQAEngine({
         const screenshotBuffer = await page.screenshot({ type: 'jpeg', quality: 60 });
         const base64Image = screenshotBuffer.toString('base64');
         const dataUriScreenshot = `data:image/jpeg;base64,${base64Image}`;
+
+        // 1. Check for "Blank Screen" startup crash (React rendering check)
+        const innerText = await page.evaluate(() => document.body.innerText).catch(() => '');
+        if (innerText.trim().length === 0) {
+          onLog(`[CRITICAL] Blank Page Crash detected on: ${currentUrl}`);
+          onBugFound({
+            url: currentUrl,
+            screenshot: dataUriScreenshot,
+            type: 'functional',
+            severity: 'critical',
+            title: 'Blank Screen / React Mount Crash',
+            description: `The page loaded successfully (HTTP 200 OK) but rendered a completely blank screen (body contains no text). This typically indicates that an uncaught JavaScript error crashed the application during mounting.`,
+            reproductionSteps: `1. Visit page: ${currentUrl}\n2. Verify that the viewport remains entirely empty and displays no layout components.`,
+            suggestedFix: `Inspect the browser console logs for uncaught exceptions, module path resolution errors, or React/Next.js hydration mismatch failures.`
+          });
+        }
+
+        // 2. Scan public loaded script bundles for exposed secret keys (Static Script Secrets Auditor)
+        if (scriptUrls.length > 0) {
+          onLog(`[SYS] Auditing ${scriptUrls.length} public JavaScript bundle(s) for exposed credentials...`);
+          for (const sUrl of scriptUrls) {
+            try {
+              const scriptRes = await fetch(sUrl).catch(() => null);
+              if (scriptRes && scriptRes.ok) {
+                const text = await scriptRes.text();
+                const patterns = [
+                  { name: 'Paystack Secret Key', regex: /sk_(live|test)_[a-fA-F0-9]{40}/g },
+                  { name: 'Flutterwave Secret Key', regex: /FLWSECK(_TEST)?-[a-fA-F0-9]{32}-X/g },
+                  { name: 'Stripe Secret Key', regex: /sk_(live|test)_[0-9a-zA-Z]{24}/g },
+                  { name: 'Google Cloud/Studio API Key', regex: /AIzaSy[0-9a-zA-Z-_]{33}/g }
+                ];
+
+                for (const pattern of patterns) {
+                  const matches = text.match(pattern.regex);
+                  if (matches) {
+                    onLog(`[CRITICAL] Security Alert: Exposed ${pattern.name} detected in script: ${sUrl}`);
+                    for (const match of matches) {
+                      const redacted = match.substring(0, 8) + '...' + match.substring(match.length - 4);
+                      onBugFound({
+                        url: currentUrl,
+                        screenshot: dataUriScreenshot,
+                        type: 'functional',
+                        severity: 'critical',
+                        title: `Exposed Private API Secret Key`,
+                        description: `A private backend API credential (${pattern.name}: ${redacted}) was found exposed in the public frontend JavaScript bundle: ${sUrl}. An attacker can harvest this key and perform unauthorized API actions.`,
+                        reproductionSteps: `1. Open source code of script: ${sUrl}\n2. Search for pattern matching: ${pattern.name}`,
+                        suggestedFix: `Immediately revoke/rotate the leaked key. Do not reference private keys (starting with sk_) in client-side code. Route transactions through secure server-side controllers and use public keys (starting with pk_) for client integrations.`
+                      });
+                    }
+                  }
+                }
+              }
+            } catch (scriptErr) {
+              // Ignore network or parsing failures
+            }
+          }
+        }
 
         // 1. Auto-flag deterministic bugs (exceptions and failed network requests)
         let autoBugsCount = 0;
@@ -398,54 +476,50 @@ async function performLogin(page, loginUrl, username, password, onLog) {
     onLog(`[SYS] Waiting for login form elements to render...`);
     const passField = await page.waitForSelector('input[type="password"]', { state: 'visible', timeout: 12000 });
 
-    // Try to find email/username input
-    const userSelectors = [
-      'input[type="email"]',
-      'input[type="text"][name*="email"]',
-      'input[type="text"][name*="user"]',
-      'input[name*="login"]',
-      'input[placeholder*="email" i]',
-      'input[placeholder*="username" i]'
-    ];
-    
+    // Identify user/email field using robust user-visible labels, placeholders, or attributes (Playwright Locators)
     let userField;
-    for (const selector of userSelectors) {
+    const userLocators = [
+      page.getByPlaceholder(/email/i),
+      page.getByPlaceholder(/username/i),
+      page.getByLabel(/email/i),
+      page.getByLabel(/username/i),
+      page.locator('input[type="email"]'),
+      page.locator('input[type="text"][name*="email"]'),
+      page.locator('input[type="text"][name*="user"]')
+    ];
+
+    for (const loc of userLocators) {
       try {
-        const el = await page.$(selector);
-        if (el && await el.isVisible()) {
-          userField = el;
+        if (await loc.count() > 0 && await loc.first().isVisible()) {
+          userField = loc.first();
           break;
         }
       } catch (e) {}
     }
 
     if (!userField || !passField) {
-      throw new Error('Could not identify login inputs. Ensure the page has standard username and password fields.');
+      throw new Error('Could not identify login inputs. Ensure the page has standard username/email and password fields.');
     }
 
-    // Fill inputs
+    // Fill inputs using locator APIs
     await userField.fill(username);
     await passField.fill(password);
     onLog(`[SYS] Entered credentials. Submitting form...`);
 
-    // Look for submit button
-    const submitSelectors = [
-      'button[type="submit"]',
-      'input[type="submit"]',
-      'button:has-text("Log in")',
-      'button:has-text("Sign in")',
-      'button:has-text("Login")',
-      'button:has-text("Signin")',
-      'a:has-text("Log in")',
-      'a:has-text("Sign in")'
+    // Look for submit button using user-visible roles and text
+    const submitLocators = [
+      page.getByRole('button', { name: /log in/i }),
+      page.getByRole('button', { name: /sign in/i }),
+      page.getByRole('button', { name: /submit/i }),
+      page.locator('button[type="submit"]'),
+      page.locator('input[type="submit"]')
     ];
 
     let submitBtn;
-    for (const selector of submitSelectors) {
+    for (const loc of submitLocators) {
       try {
-        const el = await page.$(selector);
-        if (el && await el.isVisible()) {
-          submitBtn = el;
+        if (await loc.count() > 0 && await loc.first().isVisible()) {
+          submitBtn = loc.first();
           break;
         }
       } catch (e) {}
@@ -463,7 +537,7 @@ async function performLogin(page, loginUrl, username, password, onLog) {
     await page.waitForTimeout(5000);
     
     const currentUrl = page.url();
-    if (currentUrl.includes(loginUrl) && await page.$('input[type="password"]')) {
+    if (currentUrl.includes(loginUrl) && await page.locator('input[type="password"]').first().isVisible().catch(() => false)) {
       onLog(`[WARNING] Browser remained on login page. Session authorization might have failed.`);
     } else {
       onLog(`[SYS] Authorization completed. Redirected to: ${currentUrl}`);
@@ -562,13 +636,43 @@ async function executeCustomScenario(page, script, onLog, onBugFound) {
         const selector = parts[0].trim();
         const value = parts[1].trim();
         onLog(`[SCENARIO] Filling selector "${selector}" with "${value}"`);
-        const el = await page.waitForSelector(selector, { timeout: 8000 });
+        
+        let el;
+        // Check if selector is written as a user-visible string (e.g. "Email Address")
+        if (selector.startsWith('"') && selector.endsWith('"')) {
+          const labelVal = selector.slice(1, -1);
+          el = page.getByPlaceholder(labelVal).first();
+          if (await el.count() === 0) {
+            el = page.getByLabel(labelVal).first();
+          }
+        }
+        
+        if (!el || await el.count() === 0) {
+          el = page.locator(selector).first();
+        }
+        
+        await el.waitFor({ state: 'visible', timeout: 8000 });
         await el.fill(value);
       } 
       else if (line.startsWith('click ')) {
         const selector = line.replace('click ', '').trim();
         onLog(`[SCENARIO] Clicking selector: "${selector}"`);
-        const el = await page.waitForSelector(selector, { timeout: 8000 });
+        
+        let el;
+        // Check if selector is written as a user-visible button string (e.g. "Submit")
+        if (selector.startsWith('"') && selector.endsWith('"')) {
+          const textVal = selector.slice(1, -1);
+          el = page.getByRole('button', { name: new RegExp(textVal, 'i') }).first();
+          if (await el.count() === 0) {
+            el = page.getByText(textVal).first();
+          }
+        }
+        
+        if (!el || await el.count() === 0) {
+          el = page.locator(selector).first();
+        }
+        
+        await el.waitFor({ state: 'visible', timeout: 8000 });
         await el.click();
         await page.waitForTimeout(1500);
       } 
@@ -610,4 +714,68 @@ async function executeCustomScenario(page, script, onLog, onBugFound) {
     }
   }
   onLog(`[SYS] Custom scenario script executed successfully.`);
+}
+
+/**
+ * Automatically discovers form inputs and injects boundary values (Phase 2 - Boundary Fuzzing)
+ * to test server validation limits and check for runtime errors.
+ */
+async function executeFunctionalInputFuzzer(page, onLog) {
+  onLog(`[SYS] Initiating functional input boundary audits...`);
+  try {
+    const forms = await page.$$('form');
+    if (forms.length === 0) {
+      onLog(`[SYS] No forms discovered on this page layout.`);
+      return;
+    }
+
+    onLog(`[SYS] Discovered ${forms.length} form(s) to audit.`);
+    
+    // Audit the primary/first form on the page to maintain crawl efficiency
+    const form = forms[0];
+    const inputs = await form.$$('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="image"])');
+    
+    if (inputs.length === 0) {
+      onLog(`[SYS] Form contains no editable input elements.`);
+      return;
+    }
+
+    onLog(`[SYS] Fuzzing ${inputs.length} input field(s) with boundary values...`);
+
+    for (const input of inputs) {
+      try {
+        const type = await input.getAttribute('type').catch(() => 'text') || 'text';
+        const name = await input.getAttribute('name').catch(() => '') || 'input';
+        
+        if (type === 'number') {
+          onLog(`[SYS] Fuzzing numeric field "${name}" with letters (NotANumber)...`);
+          await input.fill('NotANumber');
+        } else if (type === 'email') {
+          onLog(`[SYS] Fuzzing email field "${name}" with invalid address syntax...`);
+          await input.fill('not-a-valid-email');
+        } else {
+          onLog(`[SYS] Fuzzing text field "${name}" with 350-character string overflow...`);
+          await input.fill('A'.repeat(350));
+        }
+      } catch (inputErr) {
+        // Ignore single field errors (element hidden or readonly)
+      }
+    }
+
+    // Attempt to submit the form
+    const submitBtn = await form.$('button[type="submit"], input[type="submit"]').catch(() => null);
+    if (submitBtn) {
+      onLog(`[SYS] Submitting fuzzed form inputs...`);
+      await submitBtn.click({ timeout: 5000 }).catch(() => {});
+      await page.waitForTimeout(2000);
+    } else {
+      onLog(`[SYS] No submit button found. Sending Enter key press on input...`);
+      if (inputs.length > 0) {
+        await inputs[0].press('Enter').catch(() => {});
+        await page.waitForTimeout(2000);
+      }
+    }
+  } catch (err) {
+    onLog(`[WARNING] Input fuzzer encountered error: ${err.message}`);
+  }
 }
