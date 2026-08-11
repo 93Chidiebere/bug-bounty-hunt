@@ -127,10 +127,23 @@ export async function runQAEngine({
       }
     }
 
-    // Run Custom Step-by-Step Scenario Script directly on the same page tab if provided
+    // Run Custom Step-by-Step Scenario Script or Goal-Driven Agentic QA directly on the same page tab
     if (testScenario) {
       try {
-        await executeCustomScenario(page, testScenario, onLog, onBugFound);
+        // Differentiate if the input represents a structured script or a natural language goal
+        const isScripted = testScenario.split('\n').some(line => {
+          const l = line.trim().toLowerCase();
+          return l.startsWith('navigate ') || l.startsWith('fill ') || l.startsWith('click ') || l.startsWith('wait ') || l.startsWith('assert ');
+        });
+
+        if (isScripted) {
+          onLog(`[SYS] Detected structured scenario script. Running custom script runner...`);
+          await executeCustomScenario(page, testScenario, onLog, onBugFound);
+        } else {
+          onLog(`[SYS] Detected natural language objective. Running autonomous Agentic QA Loop...`);
+          await executeAgenticScenario(page, testScenario, loginUser, loginPass, onLog, onBugFound, ai, provider, model);
+        }
+
         const finalUrl = page.url();
         if (!queue.includes(finalUrl)) {
           onLog(`[SYS] Adding scenario final destination to crawl queue: ${finalUrl}`);
@@ -782,5 +795,210 @@ async function executeFunctionalInputFuzzer(page, onLog) {
     }
   } catch (err) {
     onLog(`[WARNING] Input fuzzer encountered error: ${err.message}`);
+  }
+}
+
+/**
+ * Executes a goal-driven autonomous user navigation sequence (Agentic Loop).
+ * Uses VLM (Gemini Cloud or Ollama Local) to reason about layout coordinates and click/type.
+ */
+async function executeAgenticScenario(page, goal, username, password, onLog, onBugFound, ai, provider, model) {
+  onLog(`[AGENT] Starting autonomous goal-driven session: "${goal}"`);
+  
+  let steps = 0;
+  const maxSteps = 12;
+  let isComplete = false;
+
+  while (!isComplete && steps < maxSteps) {
+    steps++;
+    onLog(`[AGENT] Step ${steps}: Perceiving page layout...`);
+
+    // Capture current screenshot to feed to the VLM
+    const screenshotBuffer = await page.screenshot({ type: 'jpeg', quality: 50 }).catch(() => null);
+    const base64Image = screenshotBuffer ? screenshotBuffer.toString('base64') : '';
+
+    // Extract interactive elements from DOM to compile clear instructions for VLM
+    const elementsInfo = await page.evaluate(() => {
+      const interactables = Array.from(document.querySelectorAll('input, button, a, [role="button"]'));
+      return interactables.map((el, i) => {
+        const text = el.innerText || el.getAttribute('placeholder') || el.getAttribute('aria-label') || '';
+        const tag = el.tagName.toLowerCase();
+        const type = el.getAttribute('type') || '';
+        const id = el.id || '';
+        const className = el.className || '';
+        
+        let selector = '';
+        if (id) {
+          selector = `#${id}`;
+        } else if (tag === 'input' && el.getAttribute('name')) {
+          selector = `input[name="${el.getAttribute('name')}"]`;
+        } else if (text.trim()) {
+          selector = `${tag}:has-text("${text.trim().substring(0, 30)}")`;
+        } else {
+          selector = `${tag}.${className.split(' ').filter(Boolean).join('.')}`;
+        }
+
+        return {
+          index: i,
+          tag,
+          type,
+          text: text.trim().substring(0, 60),
+          selector
+        };
+      }).filter(el => el.text || el.tag === 'input');
+    });
+
+    const currentUrl = page.url();
+    const promptText = `You are an autonomous QA agent testing the website: ${currentUrl}.
+Your objective: "${goal}"
+Credentials you can use if needed:
+- Username/Email: ${username}
+- Password: ${password}
+
+Here is a list of interactive elements discovered on the page:
+${JSON.stringify(elementsInfo, null, 2)}
+
+Choose the single next logical action to reach the objective. You must return your choice in a strict JSON format matching this schema:
+{
+  "action": "click" | "fill" | "wait" | "complete" | "fail",
+  "selector": "exact selector string from list",
+  "value": "text to fill (only for fill action)",
+  "reason": "brief explanation of your decision"
+}
+
+Notes:
+- Use "complete" when the objective is fully satisfied (e.g. dashboard is visible, final screen loaded).
+- Use "fail" if the page contains a crash, an error message blocking the objective, or you get stuck.
+- Return ONLY the raw JSON block. No markdown, no explainers.`;
+
+    let actionJson = null;
+    try {
+      if (provider === 'ollama') {
+        onLog(`[AGENT] Requesting local reasoning from Ollama (llava)...`);
+        const payload = {
+          model: 'llava',
+          messages: [
+            {
+              role: 'user',
+              content: promptText,
+              images: [base64Image]
+            }
+          ],
+          stream: false,
+          format: 'json'
+        };
+
+        const res = await fetch('http://127.0.0.1:11434/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+          throw new Error(`Ollama connection error: ${res.statusText}`);
+        }
+
+        const data = await res.json();
+        const text = data.message?.content || '';
+        actionJson = JSON.parse(text.trim());
+      } else {
+        if (!ai) {
+          throw new Error('Cloud AI provider (Gemini) is required but not initialized.');
+        }
+        onLog(`[AGENT] Requesting cloud reasoning from Gemini (${model})...`);
+        const response = await ai.models.generateContent({
+          model: model || 'gemini-1.5-flash',
+          contents: [
+            {
+              inlineData: {
+                data: base64Image,
+                mimeType: 'image/jpeg'
+              }
+            },
+            {
+              text: promptText
+            }
+          ],
+          config: { responseMimeType: 'application/json' }
+        });
+
+        const rawText = response.text || '';
+        actionJson = JSON.parse(rawText.trim());
+      }
+    } catch (aiErr) {
+      onLog(`[ERROR] Agent planning failed: ${aiErr.message}`);
+      break;
+    }
+
+    if (!actionJson) {
+      onLog(`[ERROR] Agent returned invalid action JSON.`);
+      break;
+    }
+
+    onLog(`[AGENT] Plan: ${actionJson.reason}`);
+
+    if (actionJson.action === 'complete') {
+      onLog(`[AGENT] Goal successfully completed!`);
+      isComplete = true;
+      break;
+    }
+
+    if (actionJson.action === 'fail') {
+      onLog(`[CRITICAL] Agent declared goal failure: ${actionJson.reason}`);
+      onBugFound({
+        url: currentUrl,
+        screenshot: base64Image ? `data:image/jpeg;base64,${base64Image}` : '',
+        type: 'functional',
+        severity: 'high',
+        title: `Autonomous Scenario Failure`,
+        description: `The autonomous agent failed to complete the goal: "${goal}". Reason: ${actionJson.reason}`,
+        reproductionSteps: `Run goal-driven agent with objective: "${goal}"`,
+        suggestedFix: `Inspect target page elements to ensure standard layout semantics or fix functional defects blocking user flows.`
+      });
+      break;
+    }
+
+    try {
+      if (actionJson.action === 'click') {
+        onLog(`[AGENT] Action: Clicking element: ${actionJson.selector}`);
+        try {
+          await page.click(actionJson.selector, { timeout: 8000 });
+          await page.waitForTimeout(2000);
+        } catch (clickErr) {
+          onLog(`[AGENT] Click failed. Running recovery: Pausing 3s for animations and retrying...`);
+          await page.waitForTimeout(3000);
+          await page.click(actionJson.selector, { timeout: 8000 });
+          await page.waitForTimeout(2000);
+        }
+      } 
+      else if (actionJson.action === 'fill') {
+        onLog(`[AGENT] Action: Filling input: ${actionJson.selector}`);
+        try {
+          const field = page.locator(actionJson.selector).first();
+          await field.focus();
+          await page.keyboard.press('Control+A');
+          await page.keyboard.press('Backspace');
+          await field.fill(actionJson.value, { timeout: 8000 });
+        } catch (fillErr) {
+          onLog(`[AGENT] Fill failed. Running recovery: Re-focusing and typing slowly...`);
+          const field = page.locator(actionJson.selector).first();
+          await field.focus();
+          await page.keyboard.press('Control+A');
+          await page.keyboard.press('Backspace');
+          await page.type(actionJson.selector, actionJson.value, { delay: 100 });
+        }
+      } 
+      else if (actionJson.action === 'wait') {
+        const waitMs = parseInt(actionJson.value) || 3000;
+        onLog(`[AGENT] Action: Waiting for ${waitMs}ms...`);
+        await page.waitForTimeout(waitMs);
+      }
+    } catch (execErr) {
+      onLog(`[WARNING] Action execution failed: ${execErr.message}. Retrying next step.`);
+    }
+  }
+
+  if (!isComplete && steps >= maxSteps) {
+    onLog(`[WARNING] Agent reached maximum step execution limit (${maxSteps}) before achieving goal.`);
   }
 }
