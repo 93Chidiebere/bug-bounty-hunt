@@ -109,6 +109,43 @@ export async function runQAEngine({
 
     onLog(`[SYS] Starting analysis scan on target: ${startUrl}`);
 
+    // Reuse a single page tab to preserve sessionStorage, login state, and optimize performance
+    const page = await context.newPage();
+
+    const consoleLogs = [];
+    const pageErrors = [];
+    const networkErrors = [];
+    const scriptUrls = [];
+
+    // Intercept and record loaded scripts (Static Secret Scanner)
+    page.on('response', response => {
+      const url = response.url();
+      const request = response.request();
+      if (request.resourceType() === 'script' && url.startsWith(origin)) {
+        scriptUrls.push(url);
+      }
+    });
+
+    // Attach browser event listeners
+    page.on('console', msg => {
+      const text = msg.text();
+      if (msg.type() === 'error' || msg.type() === 'warning' || text.toLowerCase().includes('failed')) {
+        consoleLogs.push(`[${msg.type().toUpperCase()}] ${text}`);
+      }
+    });
+
+    page.on('pageerror', err => {
+      pageErrors.push(err.stack || err.message);
+    });
+
+    page.on('requestfailed', req => {
+      const failure = req.failure();
+      const url = req.url();
+      if (!url.includes('analytics') && !url.includes('google-analytics') && !url.includes('facebook')) {
+        networkErrors.push(`${req.method()} ${url} - Reason: ${failure?.errorText || 'Unknown Connection Error'}`);
+      }
+    });
+
     while (queue.length > 0 && pagesCrawledCount < maxPages) {
       const currentUrl = queue.shift();
 
@@ -125,41 +162,12 @@ export async function runQAEngine({
       pagesCrawledCount++;
 
       onLog(`[CRAWL] Navigating to: ${currentUrl} (${pagesCrawledCount}/${maxPages})`);
-      const page = await context.newPage();
-
-      const consoleLogs = [];
-      const pageErrors = [];
-      const networkErrors = [];
-      const scriptUrls = [];
-
-      // Intercept and record loaded scripts (Static Secret Scanner)
-      page.on('response', response => {
-        const url = response.url();
-        const request = response.request();
-        if (request.resourceType() === 'script' && url.startsWith(origin)) {
-          scriptUrls.push(url);
-        }
-      });
-
-      // Attach browser event listeners
-      page.on('console', msg => {
-        const text = msg.text();
-        if (msg.type() === 'error' || msg.type() === 'warning' || text.toLowerCase().includes('failed')) {
-          consoleLogs.push(`[${msg.type().toUpperCase()}] ${text}`);
-        }
-      });
-
-      page.on('pageerror', err => {
-        pageErrors.push(err.stack || err.message);
-      });
-
-      page.on('requestfailed', req => {
-        const failure = req.failure();
-        const url = req.url();
-        if (!url.includes('analytics') && !url.includes('google-analytics') && !url.includes('facebook')) {
-          networkErrors.push(`${req.method()} ${url} - Reason: ${failure?.errorText || 'Unknown Connection Error'}`);
-        }
-      });
+      
+      // Clear logs and assets from previous page crawl iteration
+      consoleLogs.length = 0;
+      pageErrors.length = 0;
+      networkErrors.length = 0;
+      scriptUrls.length = 0;
 
       try {
         // Load page, waiting for DOM content (ignoring slow CDNs/fonts/scripts)
@@ -448,10 +456,10 @@ You must respond in JSON matching the following structure (ensure it is valid JS
         }
         
         onLog(`[ERROR] Failed to audit page ${currentUrl}: ${friendlyError}`);
-      } finally {
-        await page.close();
       }
     }
+
+    await page.close().catch(() => {});
 
     onLog(`[SYS] Scan completed successfully. Visited ${pagesCrawledCount} pages.`);
   } catch (err) {
