@@ -67,47 +67,11 @@ export async function runQAEngine({
       }
     });
 
-    // Authenticate context if credentials are provided
-    if (loginUrl && loginUser) {
-      const loginPage = await context.newPage();
-      try {
-        await performLogin(loginPage, loginUrl, loginUser, loginPass, onLog);
-        
-        // Capture authenticated session storage state (cookies + local storage)
-        const statePath = 'auth_state.json';
-        await context.storageState({ path: statePath });
-        onLog(`[SYS] Authenticated storage state successfully serialized to ${statePath}`);
-      } catch (err) {
-        onLog(`[WARNING] Login failed: ${err.message}. Auditing site without session auth.`);
-      } finally {
-        await loginPage.close();
-      }
-    }
-
     const queue = [startUrl];
     const visited = new Set();
     const origin = new URL(startUrl).origin;
     const targetHost = new URL(startUrl).hostname.replace('www.', '');
     let pagesCrawledCount = 0;
-
-    // Run Custom Step-by-Step Scenario Script if provided
-    if (testScenario) {
-      const scenarioPage = await context.newPage();
-      try {
-        await executeCustomScenario(scenarioPage, testScenario, onLog, onBugFound);
-        const finalUrl = scenarioPage.url();
-        if (!queue.includes(finalUrl)) {
-          onLog(`[SYS] Adding scenario final destination to crawl queue: ${finalUrl}`);
-          queue.unshift(finalUrl);
-        }
-      } catch (err) {
-        onLog(`[WARNING] Scenario execution aborted. Resuming default crawl.`);
-      } finally {
-        await scenarioPage.close();
-      }
-    }
-
-    onLog(`[SYS] Starting analysis scan on target: ${startUrl}`);
 
     // Reuse a single page tab to preserve sessionStorage, login state, and optimize performance
     const page = await context.newPage();
@@ -145,6 +109,39 @@ export async function runQAEngine({
         networkErrors.push(`${req.method()} ${url} - Reason: ${failure?.errorText || 'Unknown Connection Error'}`);
       }
     });
+
+    // Authenticate the main page directly if credentials are provided
+    if (loginUrl && loginUser) {
+      try {
+        await performLogin(page, loginUrl, loginUser, loginPass, onLog);
+        const finalLoginUrl = page.url();
+        if (!queue.includes(finalLoginUrl)) {
+          queue.push(finalLoginUrl);
+        }
+        // Capture authenticated session storage state (cookies + local storage)
+        const statePath = 'auth_state.json';
+        await context.storageState({ path: statePath });
+        onLog(`[SYS] Authenticated storage state successfully serialized to ${statePath}`);
+      } catch (err) {
+        onLog(`[WARNING] Login failed: ${err.message}. Auditing site without session auth.`);
+      }
+    }
+
+    // Run Custom Step-by-Step Scenario Script directly on the same page tab if provided
+    if (testScenario) {
+      try {
+        await executeCustomScenario(page, testScenario, onLog, onBugFound);
+        const finalUrl = page.url();
+        if (!queue.includes(finalUrl)) {
+          onLog(`[SYS] Adding scenario final destination to crawl queue: ${finalUrl}`);
+          queue.unshift(finalUrl);
+        }
+      } catch (err) {
+        onLog(`[WARNING] Scenario execution aborted. Resuming default crawl.`);
+      }
+    }
+
+    onLog(`[SYS] Starting analysis scan on target: ${startUrl}`);
 
     while (queue.length > 0 && pagesCrawledCount < maxPages) {
       const currentUrl = queue.shift();
