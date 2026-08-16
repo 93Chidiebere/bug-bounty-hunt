@@ -14,7 +14,7 @@ export async function runQAEngine({
   startUrl, 
   geminiApiKey, 
   provider = 'gemini', 
-  model = 'gemini-1.5-flash', 
+  model = 'gemini-2.5-flash', 
   loginUrl = '',
   loginUser = '',
   loginPass = '',
@@ -407,7 +407,7 @@ You must respond in JSON matching the following structure (ensure it is valid JS
           } else {
             onLog(`[AI] Requesting cloud analysis from Gemini (${model})...`);
             const response = await ai.models.generateContent({
-              model: model || 'gemini-1.5-flash',
+              model: model || 'gemini-2.5-flash',
               contents: [
                 {
                   inlineData: {
@@ -907,7 +907,7 @@ Notes:
         }
         onLog(`[AGENT] Requesting cloud reasoning from Gemini (${model})...`);
         const response = await ai.models.generateContent({
-          model: model || 'gemini-1.5-flash',
+          model: model || 'gemini-2.5-flash',
           contents: [
             {
               inlineData: {

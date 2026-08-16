@@ -31,7 +31,7 @@ app.post('/api/start-scan', (req, res) => {
     url, 
     apiKey, 
     provider = 'gemini', 
-    model = 'gemini-1.5-flash', 
+    model = 'gemini-2.5-flash', 
     maxPages = 5,
     loginUrl = '',
     loginUser = '',
