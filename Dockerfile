@@ -1,5 +1,5 @@
 # Use official Microsoft Playwright system image (includes node, browsers, and OS dependencies)
-FROM mcr.microsoft.com/playwright:v1.45.0-jammy
+FROM mcr.microsoft.com/playwright:v1.62.1-jammy
 
 # Set active workspace
 WORKDIR /app
