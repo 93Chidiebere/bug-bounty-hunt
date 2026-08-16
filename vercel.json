@@ -4,7 +4,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://your-railway-app.up.railway.app/api/:path*"
+      "destination": "https://bug-bounty-hunt-production.up.railway.app/api/:path*"
     },
     {
       "source": "/",
