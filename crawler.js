@@ -281,15 +281,37 @@ export async function runQAEngine({
 
         if (networkErrors.length > 0) {
           for (const reqErr of networkErrors) {
+            // Determine dynamic title and suggested fix based on the URL type
+            let bugTitle = 'Failed API/Network Request';
+            let fixSuggestion = 'Ensure correct API routing and headers (e.g. CORS). Verify backend server status and add error-boundary wrappers to handle offline/failed connections gracefully.';
+            
+            const lowerErr = reqErr.toLowerCase();
+            if (lowerErr.includes('.woff') || lowerErr.includes('font')) {
+              bugTitle = 'Failed to Load Font Resource';
+              fixSuggestion = 'Check font hosting CDN availability. Ensure the cross-origin font loader is accessible, or consider bundling font assets locally in the project build to avoid external network issues.';
+            } else if (lowerErr.includes('.png') || lowerErr.includes('.jpg') || lowerErr.includes('.jpeg') || lowerErr.includes('.svg') || lowerErr.includes('.gif')) {
+              bugTitle = 'Failed to Load Image Asset';
+              fixSuggestion = 'Verify that the image asset URL path is valid. Ensure files are correctly hosted on your media server (CDN) and that file extensions match the storage paths.';
+            } else if (lowerErr.includes('.mp4') || lowerErr.includes('.webm') || lowerErr.includes('cloudinary') || lowerErr.includes('video')) {
+              bugTitle = 'Failed to Load Media Asset';
+              fixSuggestion = 'Check that the video/audio files exist on the hosting provider (e.g. Cloudinary). Verify CORS policies to support media streaming and check that CDN links are not expired.';
+            } else if (lowerErr.includes('.js')) {
+              bugTitle = 'Failed to Load Script File';
+              fixSuggestion = 'Verify that the JavaScript bundle path is correct. Check if client-side firewalls, ad-blockers, or server resource limits are preventing the script from downloading.';
+            } else if (lowerErr.includes('.css')) {
+              bugTitle = 'Failed to Load Stylesheet File';
+              fixSuggestion = 'Ensure the stylesheet URL path is valid. If using a third-party CSS framework or CDN link, check their server status page for connectivity issues.';
+            }
+
             onBugFound({
               url: currentUrl,
               screenshot: dataUriScreenshot,
               type: 'network',
               severity: 'high',
-              title: 'Failed API/Network Request',
-              description: `A network request failed on the client side: "${reqErr}". This blocks page components from retrieving backend payloads.`,
-              reproductionSteps: `1. Visit page: ${currentUrl}\n2. Inspect failed HTTP calls inside browser DevTools (Network tab).`,
-              suggestedFix: `Ensure correct API routing and headers (e.g. CORS). Add error-boundary wrappers to handle offline/failed connections gracefully.`
+              title: bugTitle,
+              description: `A network request failed on the client side: "${reqErr}". This blocks page components from rendering properly or retrieving required payloads.`,
+              reproductionSteps: `1. Visit page: ${currentUrl}\n2. Open browser Developer Tools and select the Network tab.\n3. Reload the page and inspect the failed network connection details.`,
+              suggestedFix: fixSuggestion
             });
             autoBugsCount++;
           }
