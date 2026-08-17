@@ -406,9 +406,10 @@ You must respond in JSON matching the following structure (ensure it is valid JS
 
           } else {
             onLog(`[AI] Requesting cloud analysis from Gemini (${model})...`);
-            const response = await ai.models.generateContent({
-              model: model || 'gemini-3.7-flash',
-              contents: [
+            const response = await callGeminiWithFallback(
+              ai,
+              model || 'gemini-3.7-flash',
+              [
                 {
                   inlineData: {
                     data: base64Image,
@@ -417,10 +418,11 @@ You must respond in JSON matching the following structure (ensure it is valid JS
                 },
                 promptText
               ],
-              config: {
+              {
                 responseMimeType: 'application/json'
-              }
-            });
+              },
+              onLog
+            );
 
             resultJson = JSON.parse(response.text);
           }
@@ -906,9 +908,10 @@ Notes:
           throw new Error('Cloud AI provider (Gemini) is required but not initialized.');
         }
         onLog(`[AGENT] Requesting cloud reasoning from Gemini (${model})...`);
-        const response = await ai.models.generateContent({
-          model: model || 'gemini-3.7-flash',
-          contents: [
+        const response = await callGeminiWithFallback(
+          ai,
+          model || 'gemini-3.7-flash',
+          [
             {
               inlineData: {
                 data: base64Image,
@@ -919,8 +922,11 @@ Notes:
               text: promptText
             }
           ],
-          config: { responseMimeType: 'application/json' }
-        });
+          {
+            responseMimeType: 'application/json'
+          },
+          onLog
+        );
 
         const rawText = response.text || '';
         actionJson = JSON.parse(rawText.trim());
@@ -1001,4 +1007,36 @@ Notes:
   if (!isComplete && steps >= maxSteps) {
     onLog(`[WARNING] Agent reached maximum step execution limit (${maxSteps}) before achieving goal.`);
   }
+}
+
+/**
+ * Robust helper that attempts to call the primary model,
+ * and rolls back to standard alternatives on error.
+ */
+async function callGeminiWithFallback(ai, primaryModel, contents, config, onLog) {
+  const fallbacks = [
+    primaryModel,
+    'gemini-3.7-flash',
+    'gemini-3.6-flash',
+    'gemini-3.5-flash-lite'
+  ].filter((v, i, a) => v && a.indexOf(v) === i);
+
+  let lastError = null;
+  for (const modelName of fallbacks) {
+    try {
+      if (modelName !== primaryModel) {
+        onLog(`[AI] Primary model failed or unavailable. Retrying with fallback: ${modelName}...`);
+      }
+      const response = await ai.models.generateContent({
+        model: modelName,
+        contents,
+        config
+      });
+      return response;
+    } catch (err) {
+      lastError = err;
+      onLog(`[WARNING] Gemini model ${modelName} call failed: ${err.message}`);
+    }
+  }
+  throw lastError || new Error('All fallback models exhausted.');
 }
