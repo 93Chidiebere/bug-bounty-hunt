@@ -516,8 +516,55 @@ async function performLogin(page, loginUrl, username, password, onLog) {
     }
 
     if (!userField) {
-      userField = await page.waitForSelector('input[type="email"], input[type="text"]', { state: 'visible', timeout: 15000 })
+      userField = await page.waitForSelector('input[type="email"], input[type="text"]', { state: 'visible', timeout: 6000 })
         .catch(() => null);
+    }
+
+    // Heuristic Fallback: If no username field is found, check if there is an entry button (e.g. "Start Teaching", "Sign In", "Log In") on screen to navigate to the auth page
+    if (!userField) {
+      onLog(`[SYS] No inputs found on current page. Probing page for entry/login button triggers...`);
+      const entryTriggers = [
+        page.getByRole('button', { name: /start teaching/i }),
+        page.getByRole('button', { name: /log in/i }),
+        page.getByRole('button', { name: /sign in/i }),
+        page.getByRole('button', { name: /get started/i }),
+        page.locator('button:has-text("Sign In")'),
+        page.locator('button:has-text("Log In")'),
+        page.locator('button:has-text("Start Teaching")'),
+        page.locator('a:has-text("Sign In")'),
+        page.locator('a:has-text("Log In")'),
+        page.locator('a:has-text("Start Teaching")')
+      ];
+
+      let entryBtn = null;
+      for (const trigger of entryTriggers) {
+        try {
+          if (await trigger.count() > 0 && await trigger.first().isVisible()) {
+            entryBtn = trigger.first();
+            break;
+          }
+        } catch (e) {}
+      }
+
+      if (entryBtn) {
+        onLog(`[SYS] Entry trigger button found ("${await entryBtn.innerText().catch(() => 'Button')}"). Clicking to open form...`);
+        await entryBtn.click();
+        await page.waitForTimeout(4000);
+
+        // Re-probe for user input field
+        for (const loc of userLocators) {
+          try {
+            if (await loc.count() > 0 && await loc.first().isVisible()) {
+              userField = loc.first();
+              break;
+            }
+          } catch (e) {}
+        }
+        if (!userField) {
+          userField = await page.waitForSelector('input[type="email"], input[type="text"]', { state: 'visible', timeout: 10000 })
+            .catch(() => null);
+        }
+      }
     }
 
     if (!userField) {
