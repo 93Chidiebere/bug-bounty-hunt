@@ -438,6 +438,49 @@ function openPageLogsModal(pageObs) {
   bugModal.classList.add('open');
 }
 
+// Open modal showing bug findings detail
+function openBugModal(bug) {
+  const steps = bug.reproductionSteps
+    .split('\n')
+    .map(step => `<li>${escapeHtml(step.replace(/^\d+\.\s*/, ''))}</li>`)
+    .join('');
+
+  modalBodyContent.innerHTML = `
+    <div class="detail-grid">
+      <div class="detail-visual">
+        <label style="color: var(--text-primary); font-weight: 500; display: block; margin-bottom: 0.5rem;">Visual Bug Highlight Location</label>
+        <img class="detail-full-img" src="${bug.screenshot}" alt="${escapeHtml(bug.title)}">
+      </div>
+      <div class="detail-info">
+        <div class="detail-header-info" style="margin-bottom: 1.5rem;">
+          <span class="badge severity-${bug.severity}" style="text-transform: uppercase; font-size: 0.7rem; font-weight: 600;">${bug.severity} severity</span>
+          <h3 class="detail-title" style="font-size: 1.25rem; font-weight: 700; margin: 0.5rem 0; color: var(--text-primary);">${escapeHtml(bug.title)}</h3>
+          <div class="bug-url" style="font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-secondary); word-break: break-all;">${escapeHtml(bug.url)}</div>
+        </div>
+        
+        <div class="detail-block" style="margin-bottom: 1.25rem;">
+          <h4 style="font-size: 0.85rem; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 0.25rem; letter-spacing: 0.05em;">Vulnerability Details</h4>
+          <p class="detail-desc" style="font-size: 0.88rem; line-height: 1.5; color: var(--text-primary);">${escapeHtml(bug.description)}</p>
+        </div>
+
+        <div class="detail-block" style="margin-bottom: 1.25rem;">
+          <h4 style="font-size: 0.85rem; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 0.25rem; letter-spacing: 0.05em;">How to Reproduce</h4>
+          <ol class="detail-steps" style="margin-left: 1.2rem; margin-top: 0.35rem; line-height: 1.5; color: var(--text-primary); font-size: 0.85rem;">
+            ${steps}
+          </ol>
+        </div>
+
+        <div class="detail-block">
+          <h4 style="font-size: 0.85rem; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 0.25rem; letter-spacing: 0.05em;">Suggested Engineering Fix</h4>
+          <pre class="code-block" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 0.75rem; overflow-x: auto; font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-primary); line-height: 1.4;"><code>${escapeHtml(bug.suggestedFix)}</code></pre>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  bugModal.classList.add('open');
+}
+
 // PDF Print Export (Compiles bugs in paper-friendly formatting)
 exportPdfBtn.addEventListener('click', () => {
   if (auditedPages.length === 0) return;

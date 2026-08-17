@@ -491,16 +491,14 @@ async function performLogin(page, loginUrl, username, password, onLog) {
   onLog(`[SYS] Starting automated login at: ${loginUrl}`);
   try {
     await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
-    
-    // Wait for the password field to render, indicating the form is loaded
-    onLog(`[SYS] Waiting for login form elements to render...`);
-    const passField = await page.waitForSelector('input[type="password"]', { state: 'visible', timeout: 35000 });
+    onLog(`[SYS] Probing login form structure (checking for single-step or progressive authentication)...`);
 
-    // Identify user/email field using robust user-visible labels, placeholders, or attributes (Playwright Locators)
+    // 1. Identify user/email field (always present upfront)
     let userField;
     const userLocators = [
       page.getByPlaceholder(/email/i),
       page.getByPlaceholder(/username/i),
+      page.getByPlaceholder(/identifier/i),
       page.getByLabel(/email/i),
       page.getByLabel(/username/i),
       page.locator('input[type="email"]'),
@@ -517,16 +515,90 @@ async function performLogin(page, loginUrl, username, password, onLog) {
       } catch (e) {}
     }
 
-    if (!userField || !passField) {
-      throw new Error('Could not identify login inputs. Ensure the page has standard username/email and password fields.');
+    if (!userField) {
+      userField = await page.waitForSelector('input[type="email"], input[type="text"]', { state: 'visible', timeout: 15000 })
+        .catch(() => null);
     }
 
-    // Fill inputs using locator APIs
-    await userField.fill(username);
-    await passField.fill(password);
-    onLog(`[SYS] Entered credentials. Submitting form...`);
+    if (!userField) {
+      throw new Error('Unable to find username/email input field on screen.');
+    }
 
-    // Look for submit button using user-visible roles and text
+    // 2. Check if the password field is immediately visible (Single-Step Form Heuristic)
+    let passField = page.locator('input[type="password"]').first();
+    const isSingleStep = passField && await passField.isVisible().catch(() => false);
+
+    if (isSingleStep) {
+      onLog(`[SYS] Single-step login form isolated. Filling credentials...`);
+      await userField.fill(username);
+      await passField.fill(password);
+    } 
+    else {
+      // 3. Progressive Multi-Step Login Recovery Ladder
+      onLog(`[SYS] Password field hidden. Executing progressive step-1 (Username/Email submission)...`);
+      await userField.fill(username);
+
+      // Search for Next / Continue triggers
+      const nextLocators = [
+        page.getByRole('button', { name: /continue/i }),
+        page.getByRole('button', { name: /next/i }),
+        page.getByRole('button', { name: /sign in/i }),
+        page.getByRole('button', { name: /log in/i }),
+        page.locator('button[type="submit"]'),
+        page.locator('button:has-text("Next")'),
+        page.locator('button:has-text("Continue")')
+      ];
+
+      let nextBtn = null;
+      for (const loc of nextLocators) {
+        try {
+          if (await loc.count() > 0 && await loc.first().isVisible()) {
+            nextBtn = loc.first();
+            break;
+          }
+        } catch (e) {}
+      }
+
+      if (nextBtn) {
+        onLog(`[SYS] Clicking progressive Next/Continue button...`);
+        await nextBtn.click();
+      } else {
+        onLog(`[SYS] No progressive button found. Pressing Enter on identifier field...`);
+        await userField.press('Enter');
+      }
+
+      onLog(`[SYS] Step 1 submitted. Waiting for password input field to render...`);
+      passField = await page.waitForSelector('input[type="password"]', { state: 'visible', timeout: 25000 })
+        .catch(() => null);
+
+      if (passField) {
+        onLog(`[SYS] Password field rendered. Filling password...`);
+        await passField.fill(password);
+      } else {
+        // Double fallback: check if we need to click a secondary login option
+        onLog(`[SYS] Password field failed to render. Probing for alternative Sign In modal/tab triggers...`);
+        const modalTriggers = [
+          page.getByText(/sign in with email/i),
+          page.getByRole('button', { name: /sign in/i })
+        ];
+        
+        for (const trigger of modalTriggers) {
+          try {
+            if (await trigger.count() > 0 && await trigger.first().isVisible()) {
+              await trigger.first().click();
+              await page.waitForTimeout(3000);
+              break;
+            }
+          } catch (e) {}
+        }
+        
+        passField = await page.waitForSelector('input[type="password"]', { state: 'visible', timeout: 15000 });
+        await passField.fill(password);
+      }
+    }
+
+    // 4. Submit completed form
+    onLog(`[SYS] Submitting completed login credentials...`);
     const submitLocators = [
       page.getByRole('button', { name: /log in/i }),
       page.getByRole('button', { name: /sign in/i }),
@@ -546,24 +618,31 @@ async function performLogin(page, loginUrl, username, password, onLog) {
     }
 
     if (!submitBtn) {
-      onLog(`[SYS] Submit button not visible. Sending Enter key on password field...`);
+      onLog(`[SYS] Submit button not visible. Sending Enter key press on password field...`);
       await passField.press('Enter');
     } else {
       await submitBtn.click();
     }
 
-    // Wait for redirect or cookies to settle
+    // 5. Verify authorization redirect
     onLog(`[SYS] Waiting for authorization redirect...`);
-    await page.waitForTimeout(5000);
+    await page.waitForTimeout(6000);
     
     const currentUrl = page.url();
     if (currentUrl.includes(loginUrl) && await page.locator('input[type="password"]').first().isVisible().catch(() => false)) {
-      onLog(`[WARNING] Browser remained on login page. Session authorization might have failed.`);
+      throw new Error(`Browser remained on login page. Session authorization might have failed. Consider using the 'Custom QA Scenario' field to write custom login interactions if this app uses CAPTCHAs or OTP gates.`);
     } else {
       onLog(`[SYS] Authorization completed. Redirected to: ${currentUrl}`);
     }
   } catch (err) {
     onLog(`[ERROR] Automated login failed: ${err.message}`);
+    
+    // Capture login failure screen state for troubleshooting
+    const screenshotBuffer = await page.screenshot({ type: 'jpeg', quality: 50 }).catch(() => null);
+    if (screenshotBuffer) {
+      onLog(`[SYS] Captured automated login failure state diagnostic.`);
+    }
+    
     throw err;
   }
 }
