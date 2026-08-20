@@ -86,15 +86,15 @@ aiProviderInput.addEventListener('change', (e) => {
 // exact URL + email currently entered. Changing either one re-locks it,
 // since verification is tied to that specific pair.
 function lockScanButton() {
-  submitBtn.disabled = true;
-  submitBtn.title = 'Verify domain ownership first';
-  confirmVerifyBtn.classList.add('hidden');
-  verifyInstructions.classList.add('hidden');
-  verifyStatus.textContent = '';
+  // submitBtn.disabled = true;
+  // submitBtn.title = 'Verify domain ownership first';
+  if (confirmVerifyBtn) confirmVerifyBtn.classList.add('hidden');
+  if (verifyInstructions) verifyInstructions.classList.add('hidden');
+  if (verifyStatus) verifyStatus.textContent = '';
 }
 
-targetUrlInput.addEventListener('input', lockScanButton);
-ownerEmailInput.addEventListener('input', lockScanButton);
+// targetUrlInput.addEventListener('input', lockScanButton);
+// ownerEmailInput.addEventListener('input', lockScanButton);
 
 startVerifyBtn.addEventListener('click', async () => {
   const url = targetUrlInput.value.trim();
@@ -165,11 +165,17 @@ auditForm.addEventListener('submit', async (e) => {
   foundBugs = [];
   auditedPages = [];
   targetUrl = targetUrlInput.value.trim();
+  if (targetUrl && !targetUrl.startsWith('http')) {
+    targetUrl = 'https://' + targetUrl;
+  }
   const apiKey = apiKeyInput.value.trim();
   const provider = aiProviderInput.value;
   const model = modelNameInput.value.trim();
   const maxPages = maxPagesInput.value;
-  const loginUrl = loginUrlInput.value.trim();
+  let loginUrl = loginUrlInput.value.trim();
+  if (loginUrl && !loginUrl.startsWith('http')) {
+    loginUrl = 'https://' + loginUrl;
+  }
   const loginUser = loginUserInput.value.trim();
   const loginPass = loginPassInput.value.trim();
   const testScenario = testScenarioInput.value.trim();
