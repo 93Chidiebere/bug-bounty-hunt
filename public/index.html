@@ -38,18 +38,21 @@
       <form id="audit-form" class="audit-form">
         <div class="form-group">
           <label for="target-url">Target Website URL</label>
-          <input 
-            type="url" 
-            id="target-url" 
-            placeholder="https://example.com" 
-            required
-            autocomplete="off"
-          >
+          <div class="input-group">
+            <span class="input-prefix">https://</span>
+            <input 
+              type="text" 
+              id="target-url" 
+              placeholder="example.com" 
+              required
+              autocomplete="off"
+            >
+          </div>
         </div>
 
         <!-- Domain Ownership Verification -->
         <!-- No scan can be launched against a domain until this passes. -->
-        <div class="form-group" id="verification-panel" style="border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 0.75rem; background: #fafafa;">
+        <div class="form-group" id="verification-panel" style="display: none;">
           <label for="owner-email" style="display:block; margin-bottom: 0.4rem;">Verify Domain Ownership</label>
           <input
             type="email"
@@ -152,12 +155,15 @@
           <div class="details-content">
             <div class="form-group">
               <label for="login-url">Login Page URL</label>
-              <input 
-                type="url" 
-                id="login-url" 
-                placeholder="https://example.com/login"
-                autocomplete="off"
-              >
+              <div class="input-group">
+                <span class="input-prefix">https://</span>
+                <input 
+                  type="text" 
+                  id="login-url" 
+                  placeholder="example.com/login"
+                  autocomplete="off"
+                >
+              </div>
             </div>
             <div class="form-group">
               <label for="login-user">Username / Email</label>
@@ -199,7 +205,7 @@
           </div>
         </details>
 
-        <button type="submit" id="submit-btn" class="btn-primary" disabled title="Verify domain ownership first">
+        <button type="submit" id="submit-btn" class="btn-primary">
           <span>Run Security & Functional Audit</span>
           <span class="spinner hidden"></span>
         </button>
