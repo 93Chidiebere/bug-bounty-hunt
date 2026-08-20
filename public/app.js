@@ -45,6 +45,15 @@ const scaDropzone = document.getElementById('sca-dropzone');
 const scaFileInput = document.getElementById('sca-file-input');
 const scaFileName = document.getElementById('sca-file-name');
 
+// Platform Selection Elements
+const platformRadios = document.querySelectorAll('input[name="platform"]');
+const webInputGroup = document.getElementById('web-input-group');
+const nativeInputGroup = document.getElementById('native-input-group');
+const nativeDropzone = document.getElementById('native-dropzone');
+const nativeFileInput = document.getElementById('native-file-input');
+const nativeFileName = document.getElementById('native-file-name');
+let nativeFileData = null;
+
 let scaFileData = { name: '', content: '' };
 
 let activeEventSource = null;
@@ -115,6 +124,70 @@ function handleScaFile(file) {
     };
   };
   reader.readAsText(file);
+}
+
+// Platform Toggle Logic
+platformRadios.forEach(radio => {
+  radio.addEventListener('change', (e) => {
+    // Update styling
+    document.querySelectorAll('.platform-btn').forEach(lbl => {
+      lbl.style.borderColor = 'var(--border-color)';
+      lbl.style.background = '#fff';
+      lbl.style.color = 'var(--text-secondary)';
+    });
+    const activeLabel = e.target.parentElement;
+    activeLabel.style.borderColor = '#000';
+    activeLabel.style.background = '#fafafa';
+    activeLabel.style.color = 'var(--text-primary)';
+
+    if (e.target.value === 'web') {
+      webInputGroup.style.display = 'block';
+      nativeInputGroup.style.display = 'none';
+      targetUrlInput.required = true;
+    } else {
+      webInputGroup.style.display = 'none';
+      nativeInputGroup.style.display = 'block';
+      targetUrlInput.required = false;
+    }
+  });
+});
+
+// Native File Dropzone Logic
+nativeDropzone.addEventListener('click', () => nativeFileInput.click());
+
+nativeDropzone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  nativeDropzone.style.backgroundColor = '#f4f4f5';
+  nativeDropzone.style.borderColor = '#18181b';
+});
+
+nativeDropzone.addEventListener('dragleave', (e) => {
+  e.preventDefault();
+  nativeDropzone.style.backgroundColor = '#fafafa';
+  nativeDropzone.style.borderColor = 'var(--border-color)';
+});
+
+nativeDropzone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  nativeDropzone.style.backgroundColor = '#fafafa';
+  nativeDropzone.style.borderColor = 'var(--border-color)';
+  
+  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+    handleNativeFile(e.dataTransfer.files[0]);
+  }
+});
+
+nativeFileInput.addEventListener('change', (e) => {
+  if (e.target.files && e.target.files.length > 0) {
+    handleNativeFile(e.target.files[0]);
+  }
+});
+
+function handleNativeFile(file) {
+  if (!file) return;
+  nativeFileName.textContent = file.name;
+  nativeFileName.style.color = '#10b981';
+  nativeFileData = file;
 }
 
 // AI Provider changes visibility of API Key & resets default model
@@ -206,6 +279,16 @@ confirmVerifyBtn.addEventListener('click', async () => {
 
 auditForm.addEventListener('submit', async (e) => {
   e.preventDefault();
+  
+  const selectedPlatform = document.querySelector('input[name="platform"]:checked').value;
+  if (selectedPlatform === 'native') {
+    if (!nativeFileData) {
+      alert("Please upload a target application binary (.apk, .ipa, etc.) first.");
+      return;
+    }
+    alert(`Native App Testing (Appium) is scheduled for Version 2.0!\n\nYou selected: ${nativeFileData.name}\n\nVerifyQA will automatically unpack this binary, run the native visual AI audit, and intercept the network traffic. Please switch back to "Web App" for now.`);
+    return;
+  }
   
   // Clean up previous scan states
   if (activeEventSource) {
