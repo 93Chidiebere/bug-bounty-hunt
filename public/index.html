@@ -81,6 +81,23 @@
           </select>
         </div>
 
+        <!-- Software Composition Analysis -->
+        <details class="settings-details">
+          <summary>Software Composition Analysis (SCA)</summary>
+          <div class="details-content">
+            <div class="form-group">
+              <label>Dependency Manifest (package.json / package-lock.json)</label>
+              <div id="sca-dropzone" style="border: 1px dashed var(--border-color); border-radius: var(--radius-md); padding: 1rem; text-align: center; cursor: pointer; font-size: 0.85rem; color: var(--text-secondary); background: #fafafa; margin-top: 0.5rem; transition: background 0.2s;">
+                <span id="sca-file-name">Drag & drop or click to upload manifest</span>
+                <input type="file" id="sca-file-input" accept=".json,.lock" style="display: none;">
+              </div>
+              <small style="color: var(--text-secondary); font-size: 0.72rem; display: block; margin-top: 0.4rem; line-height: 1.3;">
+                Optionally upload a backend/frontend dependency manifest to scan against the Google OSV CVE database.
+              </small>
+            </div>
+          </div>
+        </details>
+
         <!-- Collapsible Settings -->
         <details class="settings-details">
           <summary>Advanced Audit Configurations</summary>

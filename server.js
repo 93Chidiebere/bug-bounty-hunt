@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { runQAEngine } from './crawler.js';
 import { initDb } from './db.js';
 import { startVerification, confirmVerification, assertVerifiedOwnership } from './ownership.js';
+import { runSCA } from './sca.js';
 
 dotenv.config();
 
@@ -65,7 +66,9 @@ app.post('/api/start-scan', async (req, res) => {
     loginUser = '',
     loginPass = '',
     testScenario = '',
-    fuzzInputs = false
+    fuzzInputs = false,
+    scaFileName = '',
+    scaFileContent = ''
   } = req.body;
 
   if (!url) {
@@ -136,7 +139,7 @@ app.post('/api/start-scan', async (req, res) => {
     broadcast('page', pageObs);
   };
 
-  runQAEngine({
+  const qaPromise = runQAEngine({
     startUrl: url,
     geminiApiKey,
     provider,
@@ -150,7 +153,13 @@ app.post('/api/start-scan', async (req, res) => {
     onLog: addLog,
     onBugFound: addBug,
     onPageAudited: addPage
-  }).then(() => {
+  });
+
+  const scaPromise = scaFileName && scaFileContent 
+    ? runSCA(scaFileName, scaFileContent, addBug, addLog) 
+    : Promise.resolve();
+
+  Promise.all([qaPromise, scaPromise]).then(() => {
     scanSession.status = 'completed';
     broadcast('status', { status: 'completed' });
     // Clean up SSE clients

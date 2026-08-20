@@ -41,6 +41,11 @@ const bugsCount = document.getElementById('bugs-count');
 const pagesCount = document.getElementById('pages-count');
 const testScenarioInput = document.getElementById('test-scenario');
 const fuzzInputsInput = document.getElementById('fuzz-inputs');
+const scaDropzone = document.getElementById('sca-dropzone');
+const scaFileInput = document.getElementById('sca-file-input');
+const scaFileName = document.getElementById('sca-file-name');
+
+let scaFileData = { name: '', content: '' };
 
 let activeEventSource = null;
 let foundBugs = [];
@@ -66,6 +71,51 @@ tabPagesBtn.addEventListener('click', () => {
   tabContentPages.classList.remove('hidden');
   tabContentBugs.classList.add('hidden');
 });
+
+// SCA File Dropzone Logic
+scaDropzone.addEventListener('click', () => scaFileInput.click());
+
+scaDropzone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  scaDropzone.style.backgroundColor = '#f4f4f5';
+  scaDropzone.style.borderColor = '#18181b';
+});
+
+scaDropzone.addEventListener('dragleave', (e) => {
+  e.preventDefault();
+  scaDropzone.style.backgroundColor = '#fafafa';
+  scaDropzone.style.borderColor = 'var(--border-color)';
+});
+
+scaDropzone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  scaDropzone.style.backgroundColor = '#fafafa';
+  scaDropzone.style.borderColor = 'var(--border-color)';
+  
+  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+    handleScaFile(e.dataTransfer.files[0]);
+  }
+});
+
+scaFileInput.addEventListener('change', (e) => {
+  if (e.target.files && e.target.files.length > 0) {
+    handleScaFile(e.target.files[0]);
+  }
+});
+
+function handleScaFile(file) {
+  if (!file) return;
+  scaFileName.textContent = file.name;
+  
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    scaFileData = {
+      name: file.name,
+      content: e.target.result
+    };
+  };
+  reader.readAsText(file);
+}
 
 // AI Provider changes visibility of API Key & resets default model
 aiProviderInput.addEventListener('change', (e) => {
@@ -215,7 +265,9 @@ auditForm.addEventListener('submit', async (e) => {
         loginUser,
         loginPass,
         testScenario,
-        fuzzInputs
+        fuzzInputs,
+        scaFileName: scaFileData.name,
+        scaFileContent: scaFileData.content
       })
     });
     

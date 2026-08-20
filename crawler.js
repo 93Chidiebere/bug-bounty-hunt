@@ -143,12 +143,41 @@ export async function runQAEngine({
     const networkErrors = [];
     const scriptUrls = [];
 
-    // Intercept and record loaded scripts (Static Secret Scanner)
-    page.on('response', response => {
+    // Intercept and record loaded scripts/wasm (Static Secret Scanner) and main HTML for Header Analysis
+    page.on('response', async response => {
       const url = response.url();
       const request = response.request();
-      if (request.resourceType() === 'script' && url.startsWith(origin)) {
+      const type = request.resourceType();
+      
+      // Secret Scanning (Scripts & WASM)
+      if ((type === 'script' || type === 'fetch' || url.endsWith('.wasm')) && url.startsWith(origin)) {
         scriptUrls.push(url);
+      }
+
+      // Security Header Auditing on main Document responses
+      if (type === 'document' && url.startsWith(origin) && response.status() === 200) {
+        const headers = await response.allHeaders();
+        const missingHeaders = [];
+        
+        if (!headers['content-security-policy']) {
+          missingHeaders.push('Content-Security-Policy (CSP)');
+        }
+        if (!headers['strict-transport-security'] && url.startsWith('https')) {
+          missingHeaders.push('Strict-Transport-Security (HSTS)');
+        }
+
+        if (missingHeaders.length > 0) {
+          onBugFound({
+            url: url,
+            screenshot: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect width="100%" height="100%" fill="%23fef3c7"/><text x="50%" y="50%" font-family="monospace" font-size="18" fill="%2392400e" dominant-baseline="middle" text-anchor="middle">Missing Security Headers</text></svg>',
+            type: 'security-header',
+            severity: 'medium',
+            title: `Missing Security Headers on Document`,
+            description: `The server failed to enforce critical security headers: ${missingHeaders.join(', ')}. This exposes the application to XSS and man-in-the-middle downgrade attacks.`,
+            reproductionSteps: `1. Inspect the HTTP response headers for ${url}.\n2. Note the absence of the flagged headers.`,
+            suggestedFix: `Configure your web server or edge router to return strict CSP and HSTS headers on all HTML responses.`
+          });
+        }
       }
     });
 
@@ -217,6 +246,32 @@ export async function runQAEngine({
     }
 
     onLog(`[SYS] Starting analysis scan on target: ${startUrl}`);
+
+    // Configuration / Infrastructure Probing
+    const probes = ['/.env', '/.git/config'];
+    for (const probe of probes) {
+      try {
+        const probeUrl = origin + probe;
+        const probeRes = await context.request.get(probeUrl);
+        if (probeRes.ok()) {
+          const text = await probeRes.text();
+          if (text.includes('DB_') || text.includes('SECRET') || text.includes('[core]')) {
+            onBugFound({
+              url: probeUrl,
+              screenshot: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect width="100%" height="100%" fill="%23fef2f2"/><text x="50%" y="50%" font-family="monospace" font-size="18" fill="%23991b1b" dominant-baseline="middle" text-anchor="middle">Exposed Config File</text></svg>',
+              type: 'config-disclosure',
+              severity: 'critical',
+              title: `Exposed Configuration File: ${probe}`,
+              description: `The server is publicly exposing a sensitive configuration file at ${probeUrl}. This can lead to total system compromise.`,
+              reproductionSteps: `1. Navigate to ${probeUrl}\n2. Observe sensitive configuration contents in plain text.`,
+              suggestedFix: `Configure your web server (e.g. Nginx/Apache) to deny access to hidden files and directories (files starting with a dot).`
+            });
+          }
+        }
+      } catch (err) {
+        // Ignore probe connection errors
+      }
+    }
 
     while (queue.length > 0 && pagesCrawledCount < maxPages) {
       const currentUrl = queue.shift();
@@ -288,7 +343,24 @@ export async function runQAEngine({
             try {
               const scriptRes = await fetch(sUrl).catch(() => null);
               if (scriptRes && scriptRes.ok) {
-                const text = await scriptRes.text();
+                let text = '';
+                if (sUrl.endsWith('.wasm')) {
+                  const buffer = await scriptRes.arrayBuffer();
+                  const uint8 = new Uint8Array(buffer);
+                  let currentStr = '';
+                  for (let i = 0; i < uint8.length; i++) {
+                    const charCode = uint8[i];
+                    if (charCode >= 32 && charCode <= 126) {
+                      currentStr += String.fromCharCode(charCode);
+                    } else {
+                      if (currentStr.length >= 8) text += currentStr + '\n';
+                      currentStr = '';
+                    }
+                  }
+                  if (currentStr.length >= 8) text += currentStr + '\n';
+                } else {
+                  text = await scriptRes.text();
+                }
                 const patterns = [
                   { name: 'Paystack Secret Key', regex: /sk_(live|test)_[a-fA-F0-9]{40}/g },
                   { name: 'Flutterwave Secret Key', regex: /FLWSECK(_TEST)?-[a-fA-F0-9]{32}-X/g },
@@ -301,6 +373,7 @@ export async function runQAEngine({
                   if (matches) {
                     onLog(`[CRITICAL] Security Alert: Exposed ${pattern.name} detected in script: ${sUrl}`);
                     for (const match of matches) {
+                      const bundleType = sUrl.endsWith('.wasm') ? 'WASM binary' : 'JavaScript bundle';
                       const redacted = match.substring(0, 8) + '...' + match.substring(match.length - 4);
                       onBugFound({
                         url: currentUrl,
@@ -308,9 +381,9 @@ export async function runQAEngine({
                         type: 'functional',
                         severity: 'critical',
                         title: `Exposed Private API Secret Key`,
-                        description: `A private backend API credential (${pattern.name}: ${redacted}) was found exposed in the public frontend JavaScript bundle: ${sUrl}. An attacker can harvest this key and perform unauthorized API actions.`,
+                        description: `A private backend API credential (${pattern.name}: ${redacted}) was found exposed in the public frontend ${bundleType}: ${sUrl}. An attacker can harvest this key and perform unauthorized API actions.`,
                         reproductionSteps: `1. Open source code of script: ${sUrl}\n2. Search for pattern matching: ${pattern.name}`,
-                        suggestedFix: `Immediately revoke/rotate the leaked key. Do not reference private keys (starting with sk_) in client-side code. Route transactions through secure server-side controllers and use public keys (starting with pk_) for client integrations.`
+                        suggestedFix: `Immediately revoke/rotate the leaked key. Do not reference private keys (starting with sk_) in client-side code or compiled assets. Route transactions through secure server-side controllers.`
                       });
                     }
                   }
