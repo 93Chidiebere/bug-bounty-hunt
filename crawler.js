@@ -167,9 +167,11 @@ export async function runQAEngine({
         }
 
         if (missingHeaders.length > 0) {
+          const svgBase64 = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect width="100%" height="100%" fill="#fef3c7"/><text x="50%" y="50%" font-family="monospace" font-size="18" fill="#92400e" dominant-baseline="middle" text-anchor="middle">Missing Security Headers</text></svg>').toString('base64');
+          
           onBugFound({
             url: url,
-            screenshot: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect width="100%" height="100%" fill="%23fef3c7"/><text x="50%" y="50%" font-family="monospace" font-size="18" fill="%2392400e" dominant-baseline="middle" text-anchor="middle">Missing Security Headers</text></svg>',
+            screenshot: `data:image/svg+xml;base64,${svgBase64}`,
             type: 'security-header',
             severity: 'medium',
             title: `Missing Security Headers on Document`,
@@ -256,9 +258,11 @@ export async function runQAEngine({
         if (probeRes.ok()) {
           const text = await probeRes.text();
           if (text.includes('DB_') || text.includes('SECRET') || text.includes('[core]')) {
+            const svgBase64 = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect width="100%" height="100%" fill="#fef2f2"/><text x="50%" y="50%" font-family="monospace" font-size="18" fill="#991b1b" dominant-baseline="middle" text-anchor="middle">Exposed Config File</text></svg>').toString('base64');
+            
             onBugFound({
               url: probeUrl,
-              screenshot: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect width="100%" height="100%" fill="%23fef2f2"/><text x="50%" y="50%" font-family="monospace" font-size="18" fill="%23991b1b" dominant-baseline="middle" text-anchor="middle">Exposed Config File</text></svg>',
+              screenshot: `data:image/svg+xml;base64,${svgBase64}`,
               type: 'config-disclosure',
               severity: 'critical',
               title: `Exposed Configuration File: ${probe}`,

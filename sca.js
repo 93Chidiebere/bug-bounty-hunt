@@ -111,9 +111,11 @@ export async function runSCA(fileName, fileContent, onBugFound, onLog) {
               totalVulnsFound++;
               const cveId = vuln.aliases ? vuln.aliases.find(a => a.startsWith('CVE-')) || vuln.id : vuln.id;
               
+              const svgBase64 = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect width="100%" height="100%" fill="#fee2e2"/><text x="50%" y="50%" font-family="monospace" font-size="18" fill="#991b1b" dominant-baseline="middle" text-anchor="middle">SCA Vulnerability</text></svg>').toString('base64');
+              
               onBugFound({
                 url: `SCA Analysis: ${fileName}`,
-                screenshot: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect width="100%" height="100%" fill="%23fee2e2"/><text x="50%" y="50%" font-family="monospace" font-size="20" fill="%23991b1b" dominant-baseline="middle" text-anchor="middle">SCA / Dependency Vulnerability</text></svg>',
+                screenshot: `data:image/svg+xml;base64,${svgBase64}`,
                 type: 'dependency-cve',
                 severity: 'high',
                 title: `Vulnerable Package: ${pkg.name}@${pkg.version} (${cveId})`,
