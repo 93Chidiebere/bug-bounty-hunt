@@ -4,6 +4,8 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { runQAEngine } from './crawler.js';
+import { initDb } from './db.js';
+import { startVerification, confirmVerification, assertVerifiedOwnership } from './ownership.js';
 
 dotenv.config();
 
@@ -25,10 +27,36 @@ function generateId() {
   return Math.random().toString(36).substring(2, 15);
 }
 
+// Domain ownership verification endpoints.
+// A scan can never be launched against a domain until it's passed
+// confirm-verification below — this is enforced in /api/start-scan.
+app.post('/api/verify/start', async (req, res) => {
+  const { url, email } = req.body;
+  if (!url) return res.status(400).json({ error: 'url is required.' });
+  try {
+    const result = await startVerification(url, email);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/verify/confirm', async (req, res) => {
+  const { url, email } = req.body;
+  if (!url) return res.status(400).json({ error: 'url is required.' });
+  try {
+    const result = await confirmVerification(url, email);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message, verified: false });
+  }
+});
+
 // POST endpoint to initiate scanning
-app.post('/api/start-scan', (req, res) => {
+app.post('/api/start-scan', async (req, res) => {
   const { 
     url, 
+    email,
     apiKey, 
     provider = 'gemini', 
     model = 'gemini-3.7-flash', 
@@ -42,6 +70,16 @@ app.post('/api/start-scan', (req, res) => {
 
   if (!url) {
     return res.status(400).json({ error: 'Target URL is required.' });
+  }
+
+  // Hard gate: refuse to launch any scan until domain ownership has been
+  // proven via the well-known-file challenge. This is what stops someone
+  // from pasting a third party's URL (e.g. a portal they don't own) and
+  // getting a scan run against it.
+  try {
+    await assertVerifiedOwnership(url, email);
+  } catch (err) {
+    return res.status(403).json({ error: err.message, verificationRequired: true });
   }
 
   // Resolve API Key: check payload first, fallback to .env, and trim CRLF/carriage returns
@@ -181,6 +219,13 @@ app.get('/api/scan-status', (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server started on http://localhost:${PORT}`);
-});
+initDb()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Server started on http://localhost:${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('[DB] Failed to initialize database:', err.message);
+    process.exit(1);
+  });

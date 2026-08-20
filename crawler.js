@@ -1,5 +1,62 @@
 import { chromium } from 'playwright';
 import { GoogleGenAI } from '@google/genai';
+import dns from 'dns/promises';
+
+/**
+ * Blocks the crawler from being pointed at internal/private infrastructure
+ * (cloud metadata endpoints, localhost, RFC1918 ranges, etc.) via a
+ * user-supplied target URL. Resolves the hostname and checks the actual IP,
+ * not just the string, so hostnames that resolve to internal IPs are also
+ * blocked (basic DNS-rebinding protection).
+ */
+async function assertSafeTarget(rawUrl) {
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error(`Invalid target URL: ${rawUrl}`);
+  }
+
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error(`Unsupported protocol "${parsed.protocol}". Only http/https targets are allowed.`);
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  if (hostname === 'localhost' || hostname.endsWith('.localhost')) {
+    throw new Error('Refusing to scan localhost.');
+  }
+
+  let addresses;
+  try {
+    addresses = await dns.lookup(hostname, { all: true });
+  } catch {
+    throw new Error(`Could not resolve hostname: ${hostname}`);
+  }
+
+  const isPrivate = (ip) => {
+    if (ip.includes(':')) {
+      // IPv6: block loopback (::1), link-local (fe80::/10), and unique-local (fc00::/7)
+      const low = ip.toLowerCase();
+      return low === '::1' || low.startsWith('fe80:') || low.startsWith('fc') || low.startsWith('fd');
+    }
+    const parts = ip.split('.').map(Number);
+    const [a, b] = parts;
+    return (
+      a === 127 ||                          // loopback
+      a === 10 ||                           // 10.0.0.0/8
+      (a === 172 && b >= 16 && b <= 31) ||  // 172.16.0.0/12
+      (a === 192 && b === 168) ||           // 192.168.0.0/16
+      (a === 169 && b === 254) ||           // link-local / cloud metadata (169.254.169.254)
+      a === 0
+    );
+  };
+
+  for (const { address } of addresses) {
+    if (isPrivate(address)) {
+      throw new Error(`Target hostname "${hostname}" resolves to a private/internal address (${address}). Refusing to scan.`);
+    }
+  }
+}
 
 /**
  * Executes the autonomous crawling and QA testing flow.
@@ -27,6 +84,11 @@ export async function runQAEngine({
 }) {
   let browser;
   try {
+    await assertSafeTarget(startUrl);
+    if (loginUrl) {
+      await assertSafeTarget(loginUrl);
+    }
+
     let ai;
     if (provider === 'gemini') {
       onLog(`[SYS] Initializing Gemini AI client...`);

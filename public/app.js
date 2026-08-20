@@ -10,6 +10,13 @@ const maxPagesVal = document.getElementById('max-pages-val');
 const loginUrlInput = document.getElementById('login-url');
 const loginUserInput = document.getElementById('login-user');
 const loginPassInput = document.getElementById('login-pass');
+const ownerEmailInput = document.getElementById('owner-email');
+const startVerifyBtn = document.getElementById('start-verify-btn');
+const confirmVerifyBtn = document.getElementById('confirm-verify-btn');
+const verifyInstructions = document.getElementById('verify-instructions');
+const verifyFilePath = document.getElementById('verify-file-path');
+const verifyToken = document.getElementById('verify-token');
+const verifyStatus = document.getElementById('verify-status');
 const submitBtn = document.getElementById('submit-btn');
 const submitSpinner = submitBtn.querySelector('.spinner');
 const submitText = submitBtn.querySelector('span:first-child');
@@ -68,12 +75,85 @@ aiProviderInput.addEventListener('change', (e) => {
     modelNameInput.placeholder = 'llama3.2-vision';
   } else {
     geminiKeyGroup.style.display = 'flex';
-    modelNameInput.value = 'gemini-1.5-flash';
-    modelNameInput.placeholder = 'gemini-1.5-flash';
+    modelNameInput.value = 'gemini-3.7-flash';
+    modelNameInput.placeholder = 'gemini-3.7-flash';
   }
 });
 
 // Start Audit submit handler
+// --- Domain ownership verification ---
+// The scan button stays disabled until confirmVerification succeeds for the
+// exact URL + email currently entered. Changing either one re-locks it,
+// since verification is tied to that specific pair.
+function lockScanButton() {
+  submitBtn.disabled = true;
+  submitBtn.title = 'Verify domain ownership first';
+  confirmVerifyBtn.classList.add('hidden');
+  verifyInstructions.classList.add('hidden');
+  verifyStatus.textContent = '';
+}
+
+targetUrlInput.addEventListener('input', lockScanButton);
+ownerEmailInput.addEventListener('input', lockScanButton);
+
+startVerifyBtn.addEventListener('click', async () => {
+  const url = targetUrlInput.value.trim();
+  const email = ownerEmailInput.value.trim();
+  if (!url) {
+    verifyStatus.textContent = 'Enter the target URL above first.';
+    return;
+  }
+  if (!email) {
+    verifyStatus.textContent = 'Enter your email above first.';
+    return;
+  }
+
+  verifyStatus.textContent = 'Requesting verification token...';
+  try {
+    const response = await fetch('/api/verify/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, email })
+    });
+    const result = await response.json();
+    if (!response.ok || result.error) {
+      throw new Error(result.error || 'Failed to start verification.');
+    }
+
+    verifyFilePath.textContent = `https://${result.domain}${result.filePath}`;
+    verifyToken.textContent = result.token;
+    verifyInstructions.classList.remove('hidden');
+    confirmVerifyBtn.classList.remove('hidden');
+    verifyStatus.textContent = 'Place the file, then click "I\'ve added the file — Verify Now".';
+  } catch (err) {
+    verifyStatus.textContent = `Error: ${err.message}`;
+  }
+});
+
+confirmVerifyBtn.addEventListener('click', async () => {
+  const url = targetUrlInput.value.trim();
+  const email = ownerEmailInput.value.trim();
+
+  verifyStatus.textContent = 'Checking for the verification file...';
+  try {
+    const response = await fetch('/api/verify/confirm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, email })
+    });
+    const result = await response.json();
+    if (!response.ok || result.error) {
+      throw new Error(result.error || 'Verification failed.');
+    }
+
+    verifyStatus.textContent = `✓ Verified. Ownership confirmed for ${result.domain}.`;
+    submitBtn.disabled = false;
+    submitBtn.title = '';
+  } catch (err) {
+    verifyStatus.textContent = `✗ ${err.message}`;
+  }
+});
+
 auditForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   
@@ -126,6 +206,7 @@ auditForm.addEventListener('submit', async (e) => {
       },
       body: JSON.stringify({ 
         url: targetUrl, 
+        email: ownerEmailInput.value.trim(),
         apiKey, 
         provider, 
         model, 
@@ -265,6 +346,7 @@ function setFormDisabled(disabled) {
   loginPassInput.disabled = disabled;
   testScenarioInput.disabled = disabled;
   fuzzInputsInput.disabled = disabled;
+  ownerEmailInput.disabled = disabled;
   
   if (disabled) {
     submitSpinner.classList.remove('hidden');
@@ -438,9 +520,9 @@ function openPageLogsModal(pageObs) {
   bugModal.classList.add('open');
 }
 
-// Open modal showing bug findings detail
+// Open bug detail modal
 function openBugModal(bug) {
-  const steps = bug.reproductionSteps
+  const stepsHtml = bug.reproductionSteps
     .split('\n')
     .map(step => `<li>${escapeHtml(step.replace(/^\d+\.\s*/, ''))}</li>`)
     .join('');
@@ -448,28 +530,34 @@ function openBugModal(bug) {
   modalBodyContent.innerHTML = `
     <div class="detail-grid">
       <div class="detail-visual">
-        <label style="color: var(--text-primary); font-weight: 500; display: block; margin-bottom: 0.5rem;">Visual Bug Highlight Location</label>
+        <label>Visual Bug Highlight Location</label>
         <img class="detail-full-img" src="${bug.screenshot}" alt="${escapeHtml(bug.title)}">
       </div>
       <div class="detail-info">
-        <div class="detail-header-info" style="margin-bottom: 1.5rem;">
-          <span class="badge severity-${bug.severity}" style="text-transform: uppercase; font-size: 0.7rem; font-weight: 600;">${bug.severity} severity</span>
-          <h3 class="detail-title" style="font-size: 1.25rem; font-weight: 700; margin: 0.5rem 0; color: var(--text-primary);">${escapeHtml(bug.title)}</h3>
-          <div class="bug-url" style="font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-secondary); word-break: break-all;">${escapeHtml(bug.url)}</div>
+        <div class="detail-header-info">
+          <span class="badge severity-${escapeHtml(bug.severity)}" style="margin-bottom: 0.5rem; display: inline-block;">
+            ${escapeHtml(bug.severity)} SEVERITY
+          </span>
+          <h3 class="detail-title">${escapeHtml(bug.title)}</h3>
+          <div class="bug-url" style="font-family: var(--font-mono); font-size: 0.85rem;">
+            ${escapeHtml(bug.url)}
+          </div>
         </div>
         
-        <div class="detail-block" style="margin-bottom: 1.25rem;">
+        <div class="detail-block">
           <h4 style="font-size: 0.85rem; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 0.25rem; letter-spacing: 0.05em;">Vulnerability Details</h4>
-          <p class="detail-desc" style="font-size: 0.88rem; line-height: 1.5; color: var(--text-primary);">${escapeHtml(bug.description)}</p>
+          <p style="font-size: 0.9rem; line-height: 1.5; color: var(--text-primary); margin-bottom: 1.5rem;">
+            ${escapeHtml(bug.description)}
+          </p>
         </div>
-
-        <div class="detail-block" style="margin-bottom: 1.25rem;">
+        
+        <div class="detail-block">
           <h4 style="font-size: 0.85rem; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 0.25rem; letter-spacing: 0.05em;">How to Reproduce</h4>
-          <ol class="detail-steps" style="margin-left: 1.2rem; margin-top: 0.35rem; line-height: 1.5; color: var(--text-primary); font-size: 0.85rem;">
-            ${steps}
+          <ol style="font-size: 0.9rem; line-height: 1.6; color: var(--text-primary); padding-left: 1.5rem; margin-bottom: 1.5rem;">
+            ${stepsHtml}
           </ol>
         </div>
-
+        
         <div class="detail-block">
           <h4 style="font-size: 0.85rem; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 0.25rem; letter-spacing: 0.05em;">Suggested Engineering Fix</h4>
           <pre class="code-block" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 0.75rem; overflow-x: auto; font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-primary); line-height: 1.4;"><code>${escapeHtml(bug.suggestedFix)}</code></pre>

@@ -47,6 +47,32 @@
           >
         </div>
 
+        <!-- Domain Ownership Verification -->
+        <!-- No scan can be launched against a domain until this passes. -->
+        <div class="form-group" id="verification-panel" style="border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 0.75rem; background: #fafafa;">
+          <label for="owner-email" style="display:block; margin-bottom: 0.4rem;">Verify Domain Ownership</label>
+          <input
+            type="email"
+            id="owner-email"
+            placeholder="you@yourcompany.com"
+            autocomplete="off"
+            style="width: 100%; margin-bottom: 0.5rem;"
+          >
+          <button type="button" id="start-verify-btn" class="btn-secondary" style="width: 100%; margin-bottom: 0.5rem;">
+            Start Verification
+          </button>
+          <div id="verify-instructions" class="hidden" style="font-size: 0.78rem; line-height: 1.4; background: #fff; border: 1px dashed var(--border-color); border-radius: 6px; padding: 0.6rem; margin-bottom: 0.5rem;">
+            <div>Create a publicly accessible file at:</div>
+            <code id="verify-file-path" style="display:block; word-break: break-all; margin: 0.3rem 0;"></code>
+            <div>Containing exactly this token:</div>
+            <code id="verify-token" style="display:block; word-break: break-all; margin: 0.3rem 0; font-weight: 600;"></code>
+          </div>
+          <button type="button" id="confirm-verify-btn" class="btn-secondary hidden" style="width: 100%;">
+            I've added the file — Verify Now
+          </button>
+          <div id="verify-status" style="font-size: 0.78rem; margin-top: 0.4rem;"></div>
+        </div>
+
         <div class="form-group">
           <label for="ai-provider">AI Inference Provider</label>
           <select id="ai-provider" class="select-field">
@@ -79,7 +105,7 @@
               >
             </div>
             <div class="form-group">
-              <label style="color: var(--text-primary); font-weight: 500;" for="max-pages">Crawl Page Limit (Max: 25)</label>
+              <label for="max-pages">Crawl Page Limit (Max: 25)</label>
               <div class="range-container">
                 <input 
                   type="range" 
@@ -156,7 +182,7 @@
           </div>
         </details>
 
-        <button type="submit" id="submit-btn" class="btn-primary">
+        <button type="submit" id="submit-btn" class="btn-primary" disabled title="Verify domain ownership first">
           <span>Run Security & Functional Audit</span>
           <span class="spinner hidden"></span>
         </button>
