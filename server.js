@@ -10,9 +10,10 @@ import { runSCA } from './sca.js';
 import { runNativeScan } from './native-scanner.js';
 import multer from 'multer';
 import fs from 'fs';
+import os from 'os';
 
-// Setup multer for APK uploads
-const upload = multer({ dest: 'uploads/' });
+// Setup multer for APK uploads (Vercel Serverless requires /tmp)
+const upload = multer({ dest: os.tmpdir() });
 
 dotenv.config();
 
