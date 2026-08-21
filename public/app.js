@@ -1,4 +1,37 @@
 // DOM Elements
+// --- SaaS Authentication Check ---
+const token = localStorage.getItem('token');
+const user = JSON.parse(localStorage.getItem('user') || '{}');
+
+if (!token) {
+  window.location.href = '/auth.html';
+}
+
+// Display company name in header if it exists
+document.addEventListener('DOMContentLoaded', () => {
+  if (user.companyName) {
+    const tagline = document.querySelector('.header-tagline');
+    if (tagline) {
+      tagline.innerHTML = `Welcome, <b>${user.companyName}</b> | Autonomous QA Auditor`;
+    }
+  }
+  
+  // Add a logout button
+  const header = document.querySelector('.header-container');
+  if (header) {
+    const logoutBtn = document.createElement('button');
+    logoutBtn.textContent = 'Logout';
+    logoutBtn.style.cssText = 'margin-left: auto; background: none; border: 1px solid #cbd5e1; padding: 4px 12px; border-radius: 4px; cursor: pointer;';
+    logoutBtn.onclick = () => {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      window.location.href = '/auth.html';
+    };
+    header.appendChild(logoutBtn);
+  }
+});
+
+// --- Application Logic ---
 const auditForm = document.getElementById('audit-form');
 const targetUrlInput = document.getElementById('target-url');
 const aiProviderInput = document.getElementById('ai-provider');

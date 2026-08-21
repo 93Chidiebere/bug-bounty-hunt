@@ -22,9 +22,14 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+import authRouter from './auth.js';
+
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Mount the Authentication API
+app.use('/api/auth', authRouter);
 
 // In-memory registry for active scan sessions
 const scans = new Map();

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Verify QA - Login</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text: #0f172a;
+      --border: #e2e8f0;
+      --primary: #0f172a;
+      --primary-hover: #334155;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+    .auth-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2rem;
+      width: 100%;
+      max-width: 400px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+    .auth-card h2 {
+      margin-top: 0;
+      font-size: 1.5rem;
+      text-align: center;
+    }
+    .form-group {
+      margin-bottom: 1rem;
+    }
+    .form-group label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-weight: 500;
+      font-size: 0.875rem;
+    }
+    .form-group input {
+      width: 100%;
+      padding: 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 1rem;
+      box-sizing: border-box;
+    }
+    .btn {
+      width: 100%;
+      padding: 0.75rem;
+      background: var(--primary);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 0.5rem;
+    }
+    .btn:hover {
+      background: var(--primary-hover);
+    }
+    .toggle-link {
+      text-align: center;
+      margin-top: 1rem;
+      font-size: 0.875rem;
+      cursor: pointer;
+      color: #2563eb;
+    }
+    .error-msg {
+      color: #dc2626;
+      font-size: 0.875rem;
+      text-align: center;
+      margin-bottom: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="auth-card">
+    <h2 id="auth-title">Sign In</h2>
+    <div id="error-box" class="error-msg"></div>
+    <form id="auth-form">
+      <div class="form-group" id="company-group" style="display: none;">
+        <label>Company Name</label>
+        <input type="text" id="company-input" placeholder="Acme Corp">
+      </div>
+      <div class="form-group">
+        <label>Email Address</label>
+        <input type="email" id="email-input" required placeholder="team@company.com">
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="password-input" required placeholder="••••••••">
+      </div>
+      <button type="submit" class="btn" id="submit-btn">Sign In</button>
+    </form>
+    <div class="toggle-link" id="toggle-btn">Need an account? Sign up</div>
+  </div>
+
+  <script>
+    let isLogin = true;
+    const title = document.getElementById('auth-title');
+    const toggleBtn = document.getElementById('toggle-btn');
+    const companyGroup = document.getElementById('company-group');
+    const submitBtn = document.getElementById('submit-btn');
+    const errorBox = document.getElementById('error-box');
+    const form = document.getElementById('auth-form');
+
+    // Check if already logged in
+    if (localStorage.getItem('token')) {
+      window.location.href = '/';
+    }
+
+    toggleBtn.addEventListener('click', () => {
+      isLogin = !isLogin;
+      if (isLogin) {
+        title.textContent = 'Sign In';
+        companyGroup.style.display = 'none';
+        submitBtn.textContent = 'Sign In';
+        toggleBtn.textContent = 'Need an account? Sign up';
+      } else {
+        title.textContent = 'Create Account';
+        companyGroup.style.display = 'block';
+        submitBtn.textContent = 'Register';
+        toggleBtn.textContent = 'Already have an account? Sign in';
+      }
+      errorBox.textContent = '';
+    });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorBox.textContent = '';
+      submitBtn.disabled = true;
+
+      const email = document.getElementById('email-input').value;
+      const password = document.getElementById('password-input').value;
+      const companyName = document.getElementById('company-input').value;
+
+      const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
+      const body = isLogin ? { email, password } : { email, password, companyName };
+
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+
+        const data = await res.json();
+        
+        if (!res.ok) {
+          throw new Error(data.error || 'Authentication failed');
+        }
+
+        // Save token and redirect to dashboard
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        window.location.href = '/';
+      } catch (err) {
+        errorBox.textContent = err.message;
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
