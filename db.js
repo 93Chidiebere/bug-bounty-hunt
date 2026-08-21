@@ -76,6 +76,7 @@ if (process.env.DATABASE_URL) {
 }
 
 export async function initDb() {
+  // 1. Existing Domain Verification
   await pool.query(`
     CREATE TABLE IF NOT EXISTS domain_verifications (
       domain TEXT NOT NULL,
@@ -88,7 +89,45 @@ export async function initDb() {
       PRIMARY KEY (domain, email)
     );
   `);
-  console.log('[DB] domain_verifications table ready.');
+
+  // 2. SaaS Multi-Tenancy: Companies
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS companies (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      api_key TEXT UNIQUE,
+      subscription_plan TEXT DEFAULT 'free',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
+  // 3. SaaS Multi-Tenancy: Users
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      company_id INTEGER REFERENCES companies(id),
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      role TEXT DEFAULT 'member',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
+  // 4. Scan History (Persistence)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS scan_history (
+      id TEXT PRIMARY KEY,
+      company_id INTEGER REFERENCES companies(id),
+      target_url TEXT,
+      platform TEXT,
+      status TEXT,
+      total_vulnerabilities INTEGER DEFAULT 0,
+      report_json JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
+  console.log('[DB] SaaS Database schema initialized (domain_verifications, companies, users, scan_history).');
 }
 
 export { pool };
