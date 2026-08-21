@@ -7,6 +7,12 @@ import { runQAEngine } from './crawler.js';
 import { initDb } from './db.js';
 import { startVerification, confirmVerification, assertVerifiedOwnership } from './ownership.js';
 import { runSCA } from './sca.js';
+import { runNativeScan } from './native-scanner.js';
+import multer from 'multer';
+import fs from 'fs';
+
+// Setup multer for APK uploads
+const upload = multer({ dest: 'uploads/' });
 
 dotenv.config();
 
@@ -53,7 +59,67 @@ app.post('/api/verify/confirm', async (req, res) => {
   }
 });
 
-// POST endpoint to initiate scanning
+// POST endpoint to initiate NATIVE scanning
+app.post('/api/scan-native', upload.single('apkFile'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No APK/Binary file uploaded.' });
+  }
+
+  const scanId = generateId();
+  
+  // Initialize scan session
+  scans.set(scanId, {
+    status: 'running',
+    logs: [],
+    bugs: [],
+    pages: [],
+    clients: []
+  });
+
+  // Start the background analysis process
+  setTimeout(async () => {
+    const session = scans.get(scanId);
+    if (!session) return;
+    
+    const broadcast = (type, data) => {
+      session.clients.forEach(client => {
+        client.res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
+      });
+    };
+
+    const pushLog = (msg, category = 'sys') => {
+      const logLine = { category, message: msg };
+      session.logs.push(logLine);
+      broadcast('log', logLine);
+    };
+
+    const pushBug = (bug) => {
+      session.bugs.push(bug);
+      broadcast('bug', bug);
+    };
+    
+    try {
+      await runNativeScan(req.file.path, req.file.originalname, pushLog, pushBug);
+      pushLog('[SYS] Scan Completed successfully.', 'sys');
+    } catch (err) {
+      pushLog(`[ERROR] Scan failed: ${err.message}`, 'error');
+    } finally {
+      session.status = 'completed';
+      broadcast('status', { status: 'completed' });
+      // Clean up uploaded file to save disk space
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (e) {
+        console.error('Failed to cleanup temp file:', e);
+      }
+    }
+  }, 0);
+
+  // Return the scan ID so the client can connect via SSE
+  res.json({ scanId });
+});
+
+// POST endpoint to initiate web scanning
 app.post('/api/start-scan', async (req, res) => {
   const { 
     url, 
