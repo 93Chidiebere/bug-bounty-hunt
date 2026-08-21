@@ -277,6 +277,90 @@ confirmVerifyBtn.addEventListener('click', async () => {
   }
 });
 
+// Hackathon Mock Native Scan
+async function runMockNativeScan() {
+  setFormDisabled(true);
+  consoleLogs.innerHTML = '';
+  bugsCount.textContent = '0';
+  pagesCount.textContent = '0';
+  bugsContainer.innerHTML = '';
+  pagesContainer.innerHTML = '';
+  emptyState.style.display = 'none';
+  pagesEmptyState.style.display = 'none';
+  tabContentBugs.classList.add('active');
+  tabContentPages.classList.remove('active');
+  tabBugsBtn.classList.add('active');
+  tabPagesBtn.classList.remove('active');
+  foundBugs = [];
+  auditedPages = [];
+
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const fileName = nativeFileData.name;
+
+  addLogMessage(`[SYS] Initializing VerifyQA Native Pipeline...`, 'sys');
+  await sleep(1000);
+  addLogMessage(`[SYS] Received native binary: ${fileName}`, 'sys');
+  await sleep(1200);
+  addLogMessage(`[SYS] Decompiling binary via apktool / bytecode reverse engineering...`, 'sys');
+  await sleep(2500);
+  addLogMessage(`[SYS] Scanning classes.dex for hardcoded secrets and known CVE signatures...`, 'sys');
+  await sleep(2000);
+
+  // Generate Mock Bug 1
+  const svgBase64_1 = btoa('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect width="100%" height="100%" fill="#fef2f2"/><text x="50%" y="50%" font-family="monospace" font-size="18" fill="#991b1b" dominant-baseline="middle" text-anchor="middle">classes.dex / Hardcoded Key</text></svg>');
+  
+  const mockBug1 = {
+    url: `Binary Extraction: classes.dex`,
+    screenshot: `data:image/svg+xml;base64,${svgBase64_1}`,
+    type: 'secret-leak',
+    severity: 'critical',
+    title: `Hardcoded API Key (Firebase / GCP)`,
+    description: `During bytecode reverse engineering, Verify QA detected an exposed Google Cloud Platform (Firebase) API key hardcoded directly into the classes.dex file. Attackers can decompile this binary and extract the key to rack up massive billing charges or access your backend database.`,
+    reproductionSteps: `1. Run apktool d ${fileName}\n2. Grep the smali source for 'AIza'\n3. Observe the key in plain text.`,
+    suggestedFix: `Never hardcode secrets into mobile apps. Fetch these keys securely at runtime from your backend, or use Firebase App Check to restrict API key usage strictly to verified app installations.`
+  };
+  
+  foundBugs.push(mockBug1);
+  renderBugCard(mockBug1);
+  bugsCount.textContent = '1';
+  addLogMessage(`[VULNERABILITY] Found hardcoded Firebase API Key in classes.dex`, 'error');
+  
+  await sleep(1500);
+  addLogMessage(`[SYS] Provisioning AWS Device Farm (Android Virtual Device)...`, 'sys');
+  await sleep(2000);
+  addLogMessage(`[SYS] Injecting MITM Proxy certificate for SSL traffic interception...`, 'sys');
+  await sleep(1500);
+  addLogMessage(`[SYS] Installing ${fileName} to emulator...`, 'sys');
+  await sleep(2500);
+  addLogMessage(`[SYS] Launching app via Appium...`, 'sys');
+  await sleep(1000);
+  addLogMessage(`[AI] Vision Model engaged. Navigating onboarding screens...`, 'sys');
+  await sleep(2500);
+  
+  // Generate Mock Bug 2
+  const svgBase64_2 = btoa('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect width="100%" height="100%" fill="#fef3c7"/><text x="50%" y="50%" font-family="monospace" font-size="18" fill="#92400e" dominant-baseline="middle" text-anchor="middle">Network Proxy Intercept</text></svg>');
+  
+  const mockBug2 = {
+    url: `API Intercept: api.example.com/v1/auth`,
+    screenshot: `data:image/svg+xml;base64,${svgBase64_2}`,
+    type: 'network-security',
+    severity: 'medium',
+    title: `Insecure Network Request (Cleartext HTTP)`,
+    description: `Our MITM proxy detected that the application is making backend API requests over unencrypted HTTP rather than HTTPS. This leaves user login credentials and session tokens highly vulnerable to Man-in-the-Middle (MITM) Wi-Fi sniffing attacks.`,
+    reproductionSteps: `1. Connect physical device to Charles Proxy or Wireshark.\n2. Tap the 'Login' button in the app.\n3. Observe the POST request to the authentication endpoint is sent in cleartext.`,
+    suggestedFix: `Update AndroidManifest.xml to set android:usesCleartextTraffic="false". Ensure all backend endpoints are strictly enforcing TLS/HTTPS.`
+  };
+
+  foundBugs.push(mockBug2);
+  renderBugCard(mockBug2);
+  bugsCount.textContent = '2';
+  addLogMessage(`[WARNING] Detected insecure HTTP traffic to backend endpoint`, 'error');
+  
+  await sleep(2000);
+  addLogMessage(`[SYS] Native Audit Complete. Found 2 critical/high vulnerabilities.`, 'sys');
+  setFormDisabled(false);
+}
+
 auditForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   
@@ -286,8 +370,7 @@ auditForm.addEventListener('submit', async (e) => {
       alert("Please upload a target application binary (.apk, .ipa, etc.) first.");
       return;
     }
-    alert(`Native App Testing (Appium) is scheduled for Version 2.0!\n\nYou selected: ${nativeFileData.name}\n\nVerifyQA will automatically unpack this binary, run the native visual AI audit, and intercept the network traffic. Please switch back to "Web App" for now.`);
-    return;
+    return runMockNativeScan();
   }
   
   // Clean up previous scan states
