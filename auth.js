@@ -10,8 +10,9 @@ dotenv.config({ path: '.env.local' });
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-verifyqa-key-123';
 
-// Initialize Convex Client
-const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL);
+// Initialize Convex Client gracefully
+const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL;
+const convex = convexUrl ? new ConvexHttpClient(convexUrl) : null;
 
 // Middleware to verify token
 export const requireAuth = (req, res, next) => {
@@ -37,6 +38,10 @@ router.post('/register', async (req, res) => {
   }
 
   try {
+    if (!convex) {
+      return res.status(500).json({ error: 'CRITICAL ERROR: Vercel is missing NEXT_PUBLIC_CONVEX_URL. Please add it and Redeploy.' });
+    }
+
     // 1. Check if user already exists in Convex
     const existingUser = await convex.query("users:getUserByEmail", { email });
     if (existingUser) {
@@ -80,6 +85,10 @@ router.post('/login', async (req, res) => {
   }
 
   try {
+    if (!convex) {
+      return res.status(500).json({ error: 'CRITICAL ERROR: Vercel is missing NEXT_PUBLIC_CONVEX_URL. Please add it and Redeploy.' });
+    }
+
     // 1. Find user in Convex
     const user = await convex.query("users:getUserByEmail", { email });
     if (!user) {
