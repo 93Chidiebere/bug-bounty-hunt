@@ -1,10 +1,17 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { pool } from './db.js';
+import { ConvexHttpClient } from "convex/browser";
+import dotenv from 'dotenv';
+
+// Load Convex URL from .env.local
+dotenv.config({ path: '.env.local' });
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-verifyqa-key-123';
+
+// Initialize Convex Client
+const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL);
 
 // Middleware to verify token
 export const requireAuth = (req, res, next) => {
@@ -15,7 +22,7 @@ export const requireAuth = (req, res, next) => {
   const token = authHeader.split(' ')[1];
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded; // { userId, companyId, role }
+    req.user = decoded;
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Unauthorized: Invalid token' });
@@ -30,9 +37,9 @@ router.post('/register', async (req, res) => {
   }
 
   try {
-    // 1. Check if user already exists
-    const userCheck = await pool.query('SELECT * FROM users WHERE email = ', [email]);
-    if (userCheck.rows.length > 0) {
+    // 1. Check if user already exists in Convex
+    const existingUser = await convex.query("users:getUserByEmail", { email });
+    if (existingUser) {
       return res.status(400).json({ error: 'Email is already registered.' });
     }
 
@@ -40,19 +47,16 @@ router.post('/register', async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
-    // 3. Create Company
-    const companyRes = await pool.query(
-      'INSERT INTO companies (name) VALUES () RETURNING id',
-      [companyName]
-    );
-    const companyId = companyRes.rows[0].id;
+    // 3. Create Company in Convex
+    const companyId = await convex.mutation("users:createCompany", { name: companyName });
 
-    // 4. Create User
-    const userRes = await pool.query(
-      'INSERT INTO users (company_id, email, password_hash, role) VALUES (, , , ) RETURNING id',
-      [companyId, email, passwordHash, 'admin']
-    );
-    const userId = userRes.rows[0].id;
+    // 4. Create User in Convex
+    const userId = await convex.mutation("users:createUser", {
+      companyId,
+      email,
+      passwordHash,
+      role: 'admin'
+    });
 
     // 5. Generate JWT Token
     const token = jwt.sign({ userId, companyId, role: 'admin' }, JWT_SECRET, { expiresIn: '7d' });
@@ -76,26 +80,25 @@ router.post('/login', async (req, res) => {
   }
 
   try {
-    // 1. Find user
-    const userRes = await pool.query('SELECT * FROM users WHERE email = ', [email]);
-    if (userRes.rows.length === 0) {
+    // 1. Find user in Convex
+    const user = await convex.query("users:getUserByEmail", { email });
+    if (!user) {
       return res.status(401).json({ error: 'Invalid email or password.' });
     }
-    const user = userRes.rows[0];
 
     // 2. Compare password
-    const isMatch = await bcrypt.compare(password, user.password_hash);
+    const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) {
       return res.status(401).json({ error: 'Invalid email or password.' });
     }
 
-    // 3. Get Company details
-    const companyRes = await pool.query('SELECT name FROM companies WHERE id = ', [user.company_id]);
-    const companyName = companyRes.rows[0]?.name || 'Unknown';
+    // 3. Get Company details from Convex
+    const company = await convex.query("users:getCompany", { companyId: user.companyId });
+    const companyName = company ? company.name : 'Unknown';
 
     // 4. Generate JWT Token
     const token = jwt.sign(
-      { userId: user.id, companyId: user.company_id, role: user.role }, 
+      { userId: user._id, companyId: user.companyId, role: user.role }, 
       JWT_SECRET, 
       { expiresIn: '7d' }
     );
@@ -103,7 +106,7 @@ router.post('/login', async (req, res) => {
     res.json({ 
       message: 'Login successful', 
       token, 
-      user: { id: user.id, email: user.email, companyId: user.company_id, companyName } 
+      user: { id: user._id, email: user.email, companyId: user.companyId, companyName } 
     });
   } catch (err) {
     console.error('[AUTH ERROR]', err);
