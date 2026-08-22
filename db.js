@@ -61,6 +61,34 @@ function makeMemoryPool() {
         return { rows: row ? [row] : [] };
       }
 
+      if (text.startsWith('select * from users where email')) {
+        const [email] = params;
+        const row = Array.from(memoryStore.values()).find(r => r._type === 'user' && r.email === email);
+        return { rows: row ? [row] : [] };
+      }
+
+      if (text.startsWith('insert into companies')) {
+        const [name] = params;
+        const id = Math.floor(Math.random() * 1000000);
+        const row = { _type: 'company', id, name };
+        memoryStore.set(`company::${id}`, row);
+        return { rows: [row] };
+      }
+
+      if (text.startsWith('insert into users')) {
+        const [company_id, email, password_hash, role] = params;
+        const id = Math.floor(Math.random() * 1000000);
+        const row = { _type: 'user', id, company_id, email, password_hash, role };
+        memoryStore.set(`user::${id}`, row);
+        return { rows: [row] };
+      }
+
+      if (text.startsWith('select name from companies')) {
+        const [id] = params;
+        const row = memoryStore.get(`company::${id}`);
+        return { rows: row ? [row] : [] };
+      }
+
       return { rows: [] };
     }
   };
